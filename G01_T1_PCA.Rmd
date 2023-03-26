@@ -269,7 +269,7 @@ Como podemos observar, Pete Rose tiene una cantidad anormalmente baja de Home Ru
 
 *EJERCICIO 4*
 
-*¿Se puede considerar a All-Bran_with_Extra_Fiber como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
+*¿Se puede considerar a Pete Rose como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
 
 Se considera que un valor es anómalo severo si está muy alejado de los demás valores en el conjunto de datos. En el caso de un análisis de PCA, esto podría significar que una observación tiene valores extremos o inusuales para varias variables, lo que podría afectar significativamente los resultados del análisis.
 
@@ -346,7 +346,7 @@ Otra opción, es representar en los gráficos de variables, solo aquellas variab
 
 *Genera el gráfico de LOADINGS para las dos primeras componentes principales y compáralo con el gráfico de variables obtenido anteriormente mediante FactoMineR.*
 
-La variable misLoadings está definida como loadings para todas las PCs. Son los loadings sin la corrección de factomineR. Se pueden representar en un gráfico representando las dimensiones.
+La variable misLoadings está definida como loadings para todas las PCs. Son los loadings sin la corrección de factomineR. Se pueden representar en un gráfico representando las dimensiones 1 y 2.
 
 ```{r loadings, fig.width=8, fig.height=5}
 loadings_2pc <- misLoadings[, 1:2]
@@ -367,6 +367,19 @@ text(loadings_2pc[,1], loadings_2pc[,2], labels = rownames(loadings_2pc),
 
 *Calcula el porcentaje de variabilidad de cada variable $k$ que queda explicado por el modelo PCA ($R^2_k(cum)$) obtenido y represéntalo en un gráfico. ¿Qué variable está mejor explicada por el modelo PCA?*
 
+El porcentaje de variabilidad que explica cada componente principal se puede calcular en función de los valores propios. Realizamos un scree plot sobre estos datos de variabilidad DE CADA DIMENSIÓN.
+
+**Buscar cómo representar la variabilidad explicada de las VARIABLES**
+
+````{r screeplot}
+eig.val <- get_eigenvalue(res.pca)
+VPmedio = 100 * (1/nrow(eig.val))
+fviz_eig(res.pca, addlabels = TRUE) +
+  geom_hline(yintercept=VPmedio, linetype=2, color="red")
+kable(eig.val[1:6,])
+
+````
+
 --------
 
 
@@ -374,13 +387,15 @@ text(loadings_2pc[,1], loadings_2pc[,2], labels = rownames(loadings_2pc),
 
 En esta sección, mostraremos solo los gráficos para las 2 primeras componentes principales. Se tienen que analizar también la PC 3, de forma análoga a como se hizo para las variables. Queda como ejercicio, pues, explorar e interpretar el gráfico que incluya la PC3.
 
-```{r score, fig.width=8, fig.height=5}
-# Gráfico de scores para todos los cereales coloreados por fabricante
+```{r score, fig.width=10, fig.height=7}
+# Gráfico de scores para todos los jugadores coloreados por salario
 fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), 
              col.ind = beisbol$Salary, repel = TRUE, labelsize = 2)
+
+fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), 
+             col.ind = log2(beisbol$Salary), repel = TRUE, labelsize = 2)
 ```
 
-**TODO: HACER TRANSFORMACIÓN LOGARÍTMICA SOBRE LOS DATOS DE SALARY PARA QUE LOS COLORES DEL GRÁFICO NO SEAN TAN EXTREMOS**
 
 
 
@@ -389,10 +404,11 @@ fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"),
 # coloreados por la estantería y con la elipse de confianza para cada estantería
 fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), repel = TRUE, labelsize = 2,
              select.ind = list("cos2"=30), habillage = "DivisionE", addEllipses = TRUE)
+
+fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), repel = TRUE, labelsize = 2,
+             select.ind = list("cos2"=30), habillage = "LeagueA", addEllipses = TRUE)
 ```
-
-
-En este segundo gráfico, no podemos observar una agrupación de los cereales en función de la estantería del supermercado en la que son colocados, aunque sí que parece que los cereales con más contenido en fibra, potasio y proteínas (y, por tanto, más rating), tienden a ser colocados en la estantería más alta (la 3). 
+**Comentar**
 
 
 
