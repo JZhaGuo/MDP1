@@ -348,6 +348,19 @@ Otra opción, es representar en los gráficos de variables, solo aquellas variab
 
 La variable misLoadings está definida como loadings para todas las PCs. Son los loadings sin la corrección de factomineR. Se pueden representar en un gráfico representando las dimensiones.
 
+```{r loadings, fig.width=8, fig.height=5}
+loadings_2pc <- misLoadings[, 1:2]
+plot(loadings_2pc[,1], loadings_2pc[,2], 
+     xlab = "Componente Principal 1", ylab = "Componente Principal 2", 
+     main = "Gráfico de Loadings", 
+     xlim = c(-0.5, 0.5), 
+     ylim = c(-0.5, 0.5),
+     type = "n")
+arrows(0, 0, loadings_2pc[,1], loadings_2pc[,2], length = 0.05, col = "blue")
+text(loadings_2pc[,1], loadings_2pc[,2], labels = rownames(loadings_2pc), 
+     pos = 3, col = "blue")
+```
+
 --------
 
 *EJERCICIO 6*
