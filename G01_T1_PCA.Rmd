@@ -397,6 +397,10 @@ fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"),
 ```
 
 
+```{r}
+fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), 
+             col.ind = log2(beisbol$Salary), repel = TRUE, labelsize = 2)
+```
 
 
 ```{r score2, fig.width=5, fig.height=5}
