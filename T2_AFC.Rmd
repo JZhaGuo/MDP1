@@ -1,6 +1,6 @@
 ---
 title: "Análisis Factorial de Correspondencias (AFC)"
-author: "Sonia Tarazona"
+author: "Grupo 01"
 date: "`r Sys.Date()`"
 output: 
   html_document:
@@ -18,30 +18,34 @@ knitr::opts_chunk$set(echo = TRUE)
 library(FactoMineR)
 library(factoextra)
 library(corrplot)
+library(ggplot2)
 ```
 
 
-# AFC simple: Datos *children*
+# AFC simple: Datos *author*
 
 ## Exploración de datos
 
-Cargamos los datos de ejemplo *children* de la librería FactoMineR. Seleccionamos solamente las columnas relacionadas con el nivel de estudios de los encuestados. De esta forma, nuestra matriz de datos es una tabla de contingencia resultante de cruzar las variables "Razones para dudar a la hora de tener hijos" y "Nivel de estudios".
+Cargamos los datos de ejemplo *author* de la librería FactoMineR. Seleccionamos solamente las columnas relacionadas con el nivel de estudios de los encuestados. De esta forma, nuestra matriz de datos es una tabla de contingencia resultante de cruzar las variables "Razones para dudar a la hora de tener hijos" y "Nivel de estudios".
 
 ```{r datos}
 data("children")
-children = children[,1:5]
 children
+
+
+data("author")
+author
 ```
 
-Tenemos un total de `r sum(children)` encuestados. Creamos a continuación las matrices de frecuencias relativas, condicionadas a filas, a columnas, y marginales de filas y columnas:
+Tenemos un total de `r sum(author)` encuestados. Creamos a continuación las matrices de frecuencias relativas, condicionadas a filas, a columnas, y marginales de filas y columnas:
 
 ```{r matrices}
 # Frecuencias relativas
-miF = children/sum(children); round(miF, 4)
+miF = author/sum(author); round(miF, 4)
 # Frecuencias marginales de filas
-margFilas = rowSums(miF); margFilas
+margFilas = rowSums(miF); 
 # Frecuencias marginales de columnas
-margCols = colSums(miF); margCols
+margCols = colSums(miF); 
 # Frecuencias condicionadas a filas (matriz R)
 condFilas = miF/margFilas; round(condFilas, 4); rowSums(condFilas)  
 # Frecuencias condicionadas a columnas (matriz C)
@@ -57,6 +61,23 @@ condCols = t(t(miF)/margCols); round(condCols, 4); colSums(condCols)
 
 *Crea un gráfico que permita visualizar las similitudes entre los perfiles dados por las frecuencias condicionadas a las filas (matriz R) y crea una nueva tabla de contingencia agrupando las dos categorías más similares.*
 
+Asumimos que dependiendo del autor, el lenguaje usado en las novelas cambia, y por tanto, las letras usadas.
+
+Con tal de descubrir si los perfiles de las novelas son similares de acuerdo al autor que las escribe, podemos hacer uso del principio de equivalencia distribucional.
+
+
+
+
+
+````{r freq plot}
+
+matplot(t(condFilas), type="l")
+
+
+````
+
+
+
 ----------
 
 
@@ -66,7 +87,7 @@ condCols = t(t(miF)/margCols); round(condCols, 4); colSums(condCols)
 Aplicamos el test de independencia de la $\chi^2$ para contrastar la hipótesis nula de independecia entre las variables "nivel de estudios" y "razones para no tener hijos".
 
 ```{r chi2}
-chisq.test(children)
+chisq.test(author)
 ```
 
 El resultado del test indica que existe una clara dependencia entre las variables estudiadas. Se genera un *warning* porque algunas de las frecuencias absolutas son inferiores a 5, que es lo recomendado para aplicar este test. No obstante, a la vista del p-valor, podemos asumir la dependencia. Así pues, tiene sentido que estudiemos la naturaleza y causas de dicha dependencia con un AFC simple. 
