@@ -24,7 +24,7 @@ knitr::opts_chunk$set(echo = TRUE)
 En esta práctica guiada utilizaremos los datos de ejemplo de cereales. Cargamos los datos y generamos la tabla auxiliar de variables incluyendo su tipo.
 
 ```{r datos1}
-beisbol = read.csv("beisbolImp.csv", row.names = 1, as.is = TRUE)
+beisbol = read.csv("beisbol.csv", row.names = 1, as.is = TRUE)
 summary(beisbol)
 
 tabla = data.frame("variable" = colnames(beisbol),"tipo" = c(rep("numerical", 19),
@@ -167,7 +167,7 @@ X = as.matrix(beisbolCE)
 # Calculamos los loadings a partir de las coordenadas de las variables
 # ya que la librería FactoMineR nos devuelve los loadings ponderados 
 # por la importancia de cada componente principal.
-hel = sweep(res.pca$var$coord, 2, sqrt(res.pca$eig[1:K,1]), FUN="/")
+misLoadings = sweep(res.pca$var$coord, 2, sqrt(res.pca$eig[1:K,1]), FUN="/")
 # Calculamos las contribuciones
 mycontrisT2 = contribT2(X = X, scores = misScores, loadings = misLoadings, 
                         eigenval = eig.val[1:K,1], observ = which.max(miT2),
@@ -297,7 +297,7 @@ panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
     if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
     text(0.5, 0.5, txt, cex = cex.cor * abs(r))
 }
-pairs(beisbol[,c("CAtBat" , "CHits", "CHmRun", "CRun", "CRBI", "CWalks", "Years")],
+pairs(beisbol[,c("CAtBat" , "CHits", "CHmRun", "CRuns", "CRBI", "CWalks", "Years")],
       lower.panel = panel.cor, pch = 20, col = "red3")
 ```
 
