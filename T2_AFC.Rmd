@@ -1,0 +1,401 @@
+---
+title: "Análisis Factorial de Correspondencias (AFC)"
+author: "Sonia Tarazona"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: false
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+```
+
+
+# AFC simple: Datos *children*
+
+## Exploración de datos
+
+Cargamos los datos de ejemplo *children* de la librería FactoMineR. Seleccionamos solamente las columnas relacionadas con el nivel de estudios de los encuestados. De esta forma, nuestra matriz de datos es una tabla de contingencia resultante de cruzar las variables "Razones para dudar a la hora de tener hijos" y "Nivel de estudios".
+
+```{r datos}
+data("children")
+children = children[,1:5]
+children
+```
+
+Tenemos un total de `r sum(children)` encuestados. Creamos a continuación las matrices de frecuencias relativas, condicionadas a filas, a columnas, y marginales de filas y columnas:
+
+```{r matrices}
+# Frecuencias relativas
+miF = children/sum(children); round(miF, 4)
+# Frecuencias marginales de filas
+margFilas = rowSums(miF); margFilas
+# Frecuencias marginales de columnas
+margCols = colSums(miF); margCols
+# Frecuencias condicionadas a filas (matriz R)
+condFilas = miF/margFilas; round(condFilas, 4); rowSums(condFilas)  
+# Frecuencias condicionadas a columnas (matriz C)
+condCols = t(t(miF)/margCols); round(condCols, 4); colSums(condCols)  
+```
+
+
+**Nota: ** A partir de las matrices R o C, podríamos ver si hay filas o columnas con perfiles similares y agruparlas según el principio de equivalencia distribucional.
+
+----------
+
+*EJERCICIO 1*
+
+*Crea un gráfico que permita visualizar las similitudes entre los perfiles dados por las frecuencias condicionadas a las filas (matriz R) y crea una nueva tabla de contingencia agrupando las dos categorías más similares.*
+
+----------
+
+
+
+## Test de independencia
+
+Aplicamos el test de independencia de la $\chi^2$ para contrastar la hipótesis nula de independecia entre las variables "nivel de estudios" y "razones para no tener hijos".
+
+```{r chi2}
+chisq.test(children)
+```
+
+El resultado del test indica que existe una clara dependencia entre las variables estudiadas. Se genera un *warning* porque algunas de las frecuencias absolutas son inferiores a 5, que es lo recomendado para aplicar este test. No obstante, a la vista del p-valor, podemos asumir la dependencia. Así pues, tiene sentido que estudiemos la naturaleza y causas de dicha dependencia con un AFC simple. 
+
+
+## Número de dimensiones y obtención del modelo
+
+Generamos un modelo AFC simple con la librería FactoMineR y seleccionamos el número óptimo de dimensiones (o componentes) del modelo. Con el número de dimensiones elegido, estimaremos el modelo AFC final. 
+
+
+```{r selDim, echo = TRUE, message = FALSE}
+res.afc = CA(children, graph = FALSE)
+eig.val <- get_eigenvalue(res.afc)
+Vmedia = 100 * (1/nrow(eig.val))
+fviz_eig(res.afc, addlabels = TRUE) +
+  geom_hline(yintercept=Vmedia, linetype=2, color="red")
+kable(eig.val)
+res.afc = CA(children, graph = FALSE, ncp = 2)
+```
+
+
+Se han seleccionado 2 componentes (dimensiones) por el criterio del codo y porque la tercera explica un porcentaje de inercia por debajo de la media. Estas dos componentes explican un `r round(eig.val[2,"cumulative.variance.percent"], 1)`% del total de variabilidad de los datos.
+
+
+----------
+
+*EJERCICIO 2*
+
+*¿Cuál es el número máximo de dimensiones que se podrían obtener en este estudio? ¿Por qué?*
+
+----------
+
+
+
+## Interpretación del modelo AFC
+
+### Filas
+
+El siguiente gráfico es el más importante para interpretar los resultados a nivel de filas del modelo AFC, es decir, para ver las categorías (en filas) que son similares o diferentes entre sí en cuanto a sus proporciones por columna, y cuáles han contribuido más a crear cada dimensión.  
+
+```{r filas1, fig.width=10, fig.height=10}
+# Gráfico de filas
+fviz_ca_row(res.afc, axes = c(1,2), repel = TRUE, col.row = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+```
+
+En primer lugar, observando las categorías de filas con más peso en las componentes, vemos que la primera componente parece estar más relacionada con temas económicos, mientras que la segunda componente recoge motivos más relacionados con el bienestar y el disfrutar de la vida. Por otra parte, parece que los encuestados que alegaron como motivos para no tener hijos motivos "economic" o "circumstances" tienen perfiles de nivel de estudio similares y diferentes respecto a por ejemplo los que contestaron "finances".
+
+Podemos fijarnos en las frecuencias condicionadas a files de estas categorías para comprobar si estas afirmaciones son ciertas:
+
+```{r filas2, fig.width=10, fig.height=10}
+library(knitr)
+kable(round(condFilas[c("economic", "circumstances", "finances"),],2))
+```
+
+Efectivamente, las dos primeras son bastante similares, mientras que la proporción de "unqualified" aumenta bastante en "finances", disminuyendo las proporciones en estudios superiores. Lo aconsejable sería interpretar el gráfico de filas junto con el gráfico de columnas que veremos más adelante pero por motivos didácticos nos hemos centrado ahora solamente en el de filas.
+
+De forma alternativa, y solo cuando sea necesario, se pueden mostrar otros gráficos o tablas que nos ayuden a ver las categorías que mejor definen cada componente, o que están bien representadas en cada componente y, por tanto, podemos sacar conclusiones sobre ellas. A continuación, se muestran algunos ejemplos de estas tablas y gráficos.
+
+```{r filas3, fig.width=9, fig.height=5}
+# Contribución relativa de cada fila a cada dimensión
+kable(res.afc$row$contrib)
+fviz_contrib(res.afc, choice = "row", axes = 1)
+# Calidad de la representación de cada fila en cada dimensión
+kable(res.afc$row$cos2) 
+fviz_cos2(res.afc, choice = "row", axes = 2)
+fviz_cos2(res.afc, choice = "row", axes = 1:2)
+```
+
+
+```{r filas4, fig.width=5, fig.height=8}
+corrplot(res.afc$row$cos2[,1:2], is.corr=FALSE)
+```
+
+----------
+
+*EJERCICIO 3*
+
+*¿Qué significado le podríamos dar a cada dimensión o componente según la variable en las filas? ¿Qué información de dicha variable resume cada dimensión?*
+
+----------
+
+
+
+### Columnas
+
+Ahora generaremos el gráfico de columnas y lo interpretaremos.
+
+```{r columnas1, fig.width=10, fig.height=9}
+fviz_ca_col(res.afc, axes = c(1,2), repel = TRUE, col.col = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+```
+
+Igual que en las filas, podríamos generar gráficos o tablas complementarias, si lo consideramos necesario. Se haría de forma análoga. En este caso, representaremos solo la calidad de la representación de cada categoría en ambas componentes.
+
+```{r columnas2, fig.width=5, fig.height=7}
+corrplot(res.afc$col$cos2[,1:2], is.corr=FALSE)
+```
+
+
+A la vista de ambos gráficos, podríamos decir que la primera componente ordena a los encuestados de menor a mayor nivel de estudios, dando peso similar a "university" y "high_school_diploma", mientras que la segunda componente ayuda a diferenciar mejor estos dos niveles de estudios superiores. Por otra parte, si nos fijamos en el cuadrante superior derecho del gráfico de columnas, vemos con alto peso el nivel de estudios "university". Si comparamos este gráfico con el de filas, encontraremos las respuestas que suelen dar los universitarios al motivo para no tener hijos, si nos fijamos en ese mismo cuadrante. Las categorías de filas con mayor peso en este cuadrante son "comfort" y "to_live". Veamos el perfil de encuestados de estas categorías:
+
+```{r columnas3, fig.width=5, fig.height=7}
+kable(round(condFilas[c("comfort", "to_live"),],2))
+```
+
+En efecto, hay un porcentaje alto de estos encuestados que tienen estudios universitarios.
+
+
+
+----------
+
+*EJERCICIO 4*
+
+*¿Qué podemos decir de los estudios encuestados que eligieron como motivos para no tener hijos "fear", "war" or "future"?*
+
+----------
+
+
+
+### Biplot
+
+El principal objetivo del AFC era entender la relación entre las dos variables estudiadas. Para ello, podemos comparar los gráficos de filas y columnas, como hemos hecho antes, o bien utilizar un biplot, es decir, un gráfico que nos permite representar conjuntamente las filas y columnas de la tabla de contingencia. El biplot solo es aconsejable si el número de filas y columnas de la tabla de contingencia no es demasiado elevado, de forma que nos permite visualizar bien los resultados.
+
+Existen diferentes formas de representar un biplot en el AFC simple. En un **biplot simétrico**, solo tiene sentido interpretar la distancia entre filas o la distancia entre columnas pero no la distancia entre una fila y una columna. Solo se pueden hacer afirmaciones generales del patrón de la relación entre filas y columnas. Por tanto, si queremos estudiar las relaciones entre filas y columnas, será más adecuado un **biplot asimétrico**. Existen muchos tipos de biplots asimétricos, representaremos a continuación algunos de ellos.
+
+```{r biplot1, fig.width=5, fig.height=5}
+# Simetricos
+fviz_ca_biplot(res.afc, repel = TRUE)
+```
+
+
+```{r biplot2, fig.width=5, fig.height=7}
+# Asimetrico: Columnas representadas en espacio de las filas
+fviz_ca_biplot(res.afc, map ="rowprincipal", repel = TRUE) 
+```
+
+
+```{r biplot3, fig.width=5, fig.height=7}
+# Asimetrico: Filas representadas en espacio de las columnas
+fviz_ca_biplot(res.afc, map ="colprincipal", repel = TRUE) 
+```
+
+----------
+
+*EJERCICIO 5*
+
+*A la vista de todos los resultados y gráficos generados, ¿qué puedes afirmar sobre la dependencia de las variables estudiadas? ¿a qué se debe principalmente que exista esa dependencia? ¿opinan de igual modo sobre las razones de no tener hijos los encuestados con cualquier nivel de estudios?*
+
+----------
+
+
+
+# AFC múltiple: datos *poison*
+
+## Exploración de datos
+
+Cargamos la base de datos sobre intoxicación alimentaria y descartamos la columna *Time*, puesto que desconocemos su significado exacto. 
+
+En primer lugar, generamos un gráfico para visualizar la proporción de observaciones en cada categoría de las variables a incluir en el modelo AFC múltiple (síntomas y alimentos ingeridos), por si hubiera alguna variable constante o casi constante que debamos eliminar.
+
+```{r mca1, fig.width=5, fig.height=5}
+data(poison)
+head(poison)
+poison2 = subset(poison, select = -Time)
+auxi = data.frame(variable = colnames(poison2), 
+                  clase = c(rep("otras",3), rep("sinto", 5), rep("ali", 6)))
+# Gráfico con las frecuencias de cada categoría para todas las variables
+frecus = apply(poison2[,auxi$clase != "otras"], 2, table)
+rownames(frecus) = c("No", "Yes")
+barplot(frecus, las = 2, legend = TRUE, cex.names = 0.8)
+```
+
+Deberíamos plantearnos eliminar la variable Fish, porque casi todos los individuos han tomado pescado. La mantendremos en la base de datos porque el pescado puede ser una probable causa de intoxicación alimentaria y no nos interesa perder esta información.
+
+A continuación, realizaremos un análisis descriptivo sencillo del resto de variables, que no se incluyen en el modelo matamático del AFC pero se incorporan a la función como variables auxiliares o suplementarias:
+
+```{r auxi, fig.width=5, fig.height=5}
+summary(poison2$Age)
+barplot(table(poison2$Age), cex.names = 0.7)
+table(poison2$Sick)
+table(poison2$Sex)
+```
+
+Detectamos anomalías en la variable edad, ya que hay edades desde 36 a 88 años y nuestra base de datos recogía información para niños de primaria. Vamos a suponer que estas edades se han introducido mal y que realmente les falta el símbolo decimal entre los dos dígitos, por lo que corregimos estos valores.
+
+```{r auxi2, fig.width=5, fig.height=5}
+poison2$Age[poison2$Age >= 36] = poison2$Age[poison2$Age >= 36]/10
+hist(poison2$Age, col = "grey", xlab = "Edad", main = "Histograma")
+```
+
+
+## Número de dimensiones y obtención del modelo
+
+Generamos un modelo AFC múltiple para las variables de síntomas y de alimentos, y seleccionamos el número de componentes óptimo.
+
+```{r mca2, fig.width=5, fig.height=5}
+res.mca <- MCA(poison2, graph = FALSE, quanti.sup = 1, quali.sup = 2:3)
+eig.val <- get_eigenvalue(res.mca)
+Vmedia = 100 * (1/nrow(eig.val))
+fviz_eig(res.mca, addlabels = TRUE) +
+  geom_hline(yintercept=Vmedia, linetype=2, color="red")
+kable(head(eig.val))
+```
+
+
+Seleccionaremos las 4 componentes que superan la inercia media. Dichas componentes explican el `r round(eig.val[4,3],1)`% de la inercia total. Generamos de nuevo el modelo AFC para este número de dimensiones óptimo:
+ 
+ 
+```{r mca2b, fig.width=5, fig.height=5}
+res.mca <- MCA(poison2, graph = FALSE, quanti.sup = 1, quali.sup = 2:3, ncp = 4)
+```
+ 
+ 
+
+## Interpretación del modelo
+
+A continuación se muestran algunos gráficos ejemplo para poder interpretar el modelo. Es importante recordar que es necesario explorar TODAS las dimensiones seleccionadas, aunque aquí por brevedad no se repitan siempre los gráficos para las 4  dimensiones seleccionadas. Tampoco significa que SIEMPRE tengamos que hacer todos los tipos gráficos. En cada estudio deberemos elegir los gráficos más representativos e informativos, la forma de colorearlos o mostrarlos, etc.
+
+Es importante también que se mantenga la misma escala en los dos ejes representados, como en PCA.
+
+
+
+### Variables
+
+En primer lugar, exploraremos la contribución de las variables a la formación de las componentes, así como la relación de las variables entre sí.
+
+Para tratar de interpretar el significado de las componentes, pueden ser útiles algunos de los siguientes gráficos, que muestran el cuadrado de la correlación de las variables con las componentes: 
+
+```{r mca4a, fig.width=5, fig.height=5}
+# Mediante funciones de factoextra, por componente
+# OJO: Si representamos componentes 3 y 4, se obtiene el mismo gráfico, no lo hace bien!!
+fviz_mca_var(res.mca, choice = "mca.cor", 
+             repel = TRUE, axes = 1:2,
+             ggtheme = theme_minimal())
+# Mediante corrplot (aquí podemos ver todas las componentes)
+corrplot(res.mca$var$cos2, is.corr=FALSE, tl.col = 1, win.asp = 0.5, cl.ratio = 0.3, cl.cex = 0.8)
+# Otros gráficos auxiliares (se comentan por ser un poco redundantes respecto al resto)
+# # Contributions de las variables a la dimension 1
+# fviz_contrib(res.mca, choice = "var", axes = 1, top = 15)
+```
+
+Como podemos observar, la primera componente hace referencia a los síntomas dolores abdominales, fiebre y diarrea que, además, son los síntomas más frecuentes en los niños con intoxicación alimentaria. Esta es la componente que mejor separa a los niños enfermos del resto, como se puede ver también por la proyección de la variable suplementaria *Sick* en el primer gráfico. El alimento con más peso en esta componente, es la mayonesa, candidata por tanto a ser la "culpable" de la intoxicación alimentaria.
+
+En cambio, la segunda componente nos permitirá ver los niños que comieron patata y calabacín, siendo vómitos el síntoma con más peso en dicha componente. En la tercera componente destacan las náuseas junto con los alimentos patata, pescado y helado. Por último, la cuarta componente representa los niños que comieron pescado, que vimos anteriormente que eran pocos.
+
+Sin embargo, los gráficos anteriores no nos permiten interpretar bien las relaciones entre variables y con observaciones, ya que no muestran el signo de la correlación. Así pues, necesitaremos los siguientes gráficos para acabar de interpretar el modelo (algunos gráficos se comentan porque aquí no son necesarios pero pueden serlo en estudios con un elevado número de variables):
+
+
+```{r mca4b, fig.width=5, fig.height=5}
+fviz_mca_var(res.mca, col.var="steelblue", shape.var = 15, repel = TRUE, 
+             axes = 1:2, labelsize = 3)
+fviz_mca_var(res.mca, col.var="steelblue", shape.var = 15, repel = TRUE, 
+             axes = 3:4, labelsize = 3)
+# Ejemplo para representar solo variables con cos2 >= 0.4
+# fviz_mca_var(res.mca, select.var = list(cos2 = 0.4))
+# Ejemplo para representar top 10 variables con el cos2 más alto
+# fviz_mca_var(res.mca, select.var= list(cos2 = 10))
+# Ejemplo para incluir en gráficos solo un conjunto de variables seleccionadas
+# misvar <- list(name = c("Fever_n", "Abdo_y", "Diarrhea_n",
+#                         "Fever_Y", "Vomit_y", "Vomit_n"))
+# fviz_mca_var(res.mca, select.var = misvar)
+```
+
+Vemos a la izquierda del primer gráfico los niños intoxicados con los síntomas más frecuentes. A la derecha los no intoxicados, que no comieron mayonesa. A partir de la segunda componente, podemos que los niños que no comieron calabacín tienden a presentar vómito como síntoma, aunque no es una relación muy fuerte.
+
+A partir del segundo gráfico (componentes 3 y 4), no podemos extraer conclusiones muy relevantes.
+
+
+
+### Individuos
+
+A continuación generaremos el gráfico de individuos (observaciones) para las 4 componentes seleccionadas y lo relacionaremos con el gráfico de variables.
+
+```{r mca3, fig.width=10, fig.height=4.5}
+library(grid)
+library(gridExtra)
+# Podemos colorear los individuos segun los valores de cualquier
+# variable (activa o suplementaria) en nuestros datos, por ejemplo Sick
+p1 = fviz_mca_ind(res.mca, axes = c(1,2),
+             label = "none", # ocultar etiquetas de los individuos
+             habillage = "Sick", # variable utilizada para colorear 
+             palette = c("#00AFBB", "#E7B800"), # colores para cada grupo
+             addEllipses = TRUE, # elipse alrededor de cada grupo coloreado
+             ellipse.type = "confidence", # elipse de confianza alrededor del punto medio
+             ggtheme = theme_minimal()) 
+# Coloreamos por una variable numérica como Age, ahora representando las dimensiones 1 y 3
+p2 = fviz_mca_ind(res.mca, axes = c(3,4),
+             label = "none",
+             col.ind = poison2$Age, # variable utilizada para colorear 
+             ggtheme = theme_minimal()) 
+grid.arrange(p1,p2, nrow = 1)
+```
+
+
+Como ya sabíamos por el gráfico de variables, la primera componente es la que separa los niños que han caído enfermos (izquierda) de los que no (derecha). La segunda componente vimos que no era muy relevante para entender las causas de la intoxicación. En cuanto a la tercera y cuarta componentes, vemos que tampoco tienen ninguna relación con la edad de los niños.
+
+
+El siguiente gráfico nos permite colorear nuestros individuos según distintas variables categóricas, que vimos en los gráficos de variables que contribuían a la formación de las componentes, o que queremos explorar:
+
+```{r mca3bis, fig.width=10, fig.height=5, warning=FALSE}
+fviz_ellipses(res.mca, c("Mayo", "Fever", "Abdominals"), geom = "point", axes = 1:2)
+fviz_ellipses(res.mca, c("Fish", "Sex", "Nausea"), geom = "point", axes = 3:4)
+```
+
+Observamos de nuevo en los gráficos anteriores la relación de la mayonesa con la intoxicación, aunque hay algunos casos que no siguen este patrón. Constatamos que las componentes 3 y 4 tampoco están relacionadas con el sexo de los niños, que solo hay un niño que comió pescado (quizás hubiera sido mejor quitar esta variable del análisis como nos planteamos al principio) y que presentó náuseas.
+
+
+### Biplot
+
+También es posible representar variables y observaciones conjuntamente en un biplot pero hay que ser cautos con lo que representamos para que se pueda visualizar correctamente el gráfico y podamos extraer información útil sobre él, llegando a sustituir a algunos de los gráficos anteriores. Si presentamos e interpretamos los gráficos anteriores, el biplot puede resultar redundante e innecesario.
+
+```{r mca5, fig.width=5, fig.height=5}
+fviz_mca_biplot(res.mca, geom.ind = "point", axes = 1:2, habillage = "Sick",
+                repel = TRUE, # Avoid text overlapping (slow if many point)
+                ggtheme = theme_minimal(), labelsize = 3, col.var = 1)
+# Solo las 10 variables con contribuciones mas altas
+fviz_mca_biplot(res.mca, select.var = list(contrib = 10), repel = TRUE,
+                geom.ind = "point", labelsize = 3,
+                habillage = "Sick", ggtheme = theme_minimal(), col.var = "grey")
+```
+
+
+
+----------
+
+*EJERCICIO 6*
+
+*A la vista de las conclusiones anteriores, ¿qué gráficos o tablas podemos generar para confirmar (o desmentir) las relaciones observadas?*
+
+----------
+
