@@ -91,6 +91,8 @@ kable(eig.val[1:6,])
 
 Sin centrar las variables, poniendo scale.unit = FALSE, nos sale una única componente principal que explica el 100% de la variabilidad.
 
+Es importante tener en cuenta que si solo se centran las variables sin escalarlas, la varianza total de cada variable seguirá siendo la misma. Solo se eliminará la media de cada variable. Por lo tanto, los resultados de la PCA pueden diferir de los resultados de la PCA que incluyen la escala de las variables.
+
 --------
 
 
@@ -129,6 +131,12 @@ grid.arrange(p1,p2, nrow = 1)
 *EJERCICIO 2*
 
 *¿Cómo podríamos averiguar qué variable o variables son las "culpables", es decir, han contribuido más a que Pete Rose (entre otros) haya resultado ser una observación anómala?*
+
+Para averiguar qué variable o variables son las "culpables" de que una observación sea anómala, es necesario examinar los valores de las variables para esa observación y compararlos con los valores de las demás observaciones.
+
+Una forma de hacerlo es mediante la función contrib() del paquete mvoutlier en R. Esta función calcula las contribuciones de las variables para cada observación en el conjunto de datos, lo que permite identificar qué variables contribuyen más a la anormalidad de una observación específica.
+
+Es importante tener en cuenta que las variables que contribuyen más a la anormalidad de una observación pueden no ser necesariamente las "culpables". Es posible que la observación sea anómala debido a factores externos o desconocidos que no están incluidos en las variables del conjunto de datos. Por lo tanto, cualquier interpretación de los resultados debe tener en cuenta estos factores y debe basarse en un conocimiento profundo del contexto y la naturaleza de los datos.
 
 --------
 
@@ -186,6 +194,16 @@ El gráfico de contribuciones muestra que `r rownames(beisbol)[which.max(miT2)]`
 *EJERCICIO 3*
 
 *Supongamos que el número de falsas alarmas fuera 2. ¿Cómo seleccionaríamos los 3 cereales candidatos a ser excluidos del modelo PCA?*
+
+Si el número de falsas alarmas fuera 2, lo que sugiere que hay 2 observaciones que son anómalas pero no deberían ser excluidas del modelo PCA, podríamos seleccionar los 3 candidatos a ser excluidos del modelo PCA de la siguiente manera:
+
+1_ Calcular las contribuciones de todas las observaciones del conjunto de datos utilizando la función contrib(). Esto nos permitirá identificar las observaciones con las contribuciones más altas.
+
+2_ Seleccionar las 3 observaciones con las contribuciones más altas y examinar sus valores para las variables relevantes. Es posible que estas observaciones tengan valores extremos o inusuales para una o varias variables, lo que podría explicar su anormalidad.
+
+3_ Evaluar si hay alguna razón conocida para que estas observaciones sean anómalas, como errores en la medición o la entrada de datos. Si es posible, corregir estos errores para ver si las observaciones todavía son anómalas.
+
+4_ Si después de examinar las observaciones candidatas y evaluar cualquier posible razón para su anormalidad todavía se consideran como anómalas, pueden ser excluidas del modelo PCA. Sin embargo, es importante tener en cuenta que la exclusión de observaciones debe ser cuidadosamente considerada y justificada, ya que puede tener un impacto significativo en los resultados del análisis.
 
 --------
 
@@ -252,6 +270,12 @@ Como podemos observar, Pete Rose tiene una cantidad anormalmente baja de Home Ru
 *EJERCICIO 4*
 
 *¿Se puede considerar a All-Bran_with_Extra_Fiber como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
+
+Se considera que un valor es anómalo severo si está muy alejado de los demás valores en el conjunto de datos. En el caso de un análisis de PCA, esto podría significar que una observación tiene valores extremos o inusuales para varias variables, lo que podría afectar significativamente los resultados del análisis.
+
+Sin embargo, la decisión de eliminar una observación del modelo PCA debe ser cuidadosamente considerada y justificada. La eliminación de una observación puede tener un impacto significativo en los resultados del análisis, especialmente si la observación representa una parte importante o única del conjunto de datos.
+
+En lugar de eliminar automáticamente una observación, puede ser útil explorar y examinar los datos con más detalle para determinar si la observación es verdaderamente anómala y si su eliminación mejoraría los resultados del análisis. Si se decide eliminar la observación, es importante documentar y justificar este proceso en el informe final del análisis.
 
 --------
 
