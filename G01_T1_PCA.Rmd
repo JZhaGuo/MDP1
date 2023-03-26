@@ -269,7 +269,7 @@ Como podemos observar, Pete Rose tiene una cantidad anormalmente baja de Home Ru
 
 *EJERCICIO 4*
 
-*¿Se puede considerar a All-Bran_with_Extra_Fiber como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
+*¿Se puede considerar a Pete Rose como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
 
 Se considera que un valor es anómalo severo si está muy alejado de los demás valores en el conjunto de datos. En el caso de un análisis de PCA, esto podría significar que una observación tiene valores extremos o inusuales para varias variables, lo que podría afectar significativamente los resultados del análisis.
 
