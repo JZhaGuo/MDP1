@@ -1,0 +1,386 @@
+---
+title: "Análisis de Componentes Principales (PCA)"
+author: "Sonia Tarazona"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Lectura y preparación de datos
+
+En esta práctica guiada utilizaremos los datos de ejemplo de cereales. Cargamos los datos y generamos la tabla auxiliar de variables incluyendo su tipo.
+
+```{r datos1}
+beisbol = read.csv("beisbolImp.csv", row.names = 1, as.is = TRUE)
+summary(beisbol)
+
+tabla = data.frame("variable" = colnames(beisbol),"tipo" = c(rep("numerical", 19),
+                                  rep("binary", 6)), stringsAsFactors = FALSE)
+                   
+rownames(tabla) = tabla$variable
+
+
+```
+
+
+# Centrado y escalado de variables
+
+En esta práctica, nos vamos a centrar en estudiar a los cereales de acuerdo con su contenido nutricional, por lo que incluiremos en el modelo matemático solo las variables que tengan relación con ello. La idea es utilizar, entre otras, la variable *rating* como variable auxilir, de forma qué podamos entender en qué se han basado para otorgar mayor o menor rating a los cereales.
+
+En el PCA, siempre centramos las variables. En cuanto al escalado, dado que las variables relacionadas con el contenido nutricional están medidas en distintas unidades, es necesario escalarlas. Se podría hacer con la función *scale* pero en esta ocasión lo haremos desde la propia función *PCA* de la librería *FactoMineR*, que tiene un argumento para ello. 
+
+
+
+# Selección del número de PCs
+
+Generamos el modelo PCA para todas las posibles componentes principales (o un elevado número de ellas) y seleccionamos el número "óptimo" de componentes principales (PCs). Como se puede observar en el código de R siguiente y como se ha discutido anteriormente, incluiremos las variables "nutricionales" en el modelo y el resto de variables las dejaremos como auxiliares (o suplementarias) y las utilizaremos para interpretar el modelo (no se utilizan en los cálculos matemáticos).
+
+Como hemos indicado en el apartado anterior, aplicaremos el centrado y escalado dentro de la propia función de PCA.
+
+
+```{r selPCs, echo = TRUE, message = FALSE, warning=FALSE}
+library(FactoMineR)
+library(factoextra)
+res.pca = PCA(beisbol, scale.unit = TRUE, graph = FALSE, ncp = 19, 
+              quali.sup = which(tabla$tipo == "binary"),
+              quanti.sup = 17:19) 
+              # quali.sup - variables suplementarias cualitativas, quanti.sup - variables auxiliares cuantitativas
+
+eig.val <- get_eigenvalue(res.pca)
+VPmedio = 100 * (1/nrow(eig.val))
+fviz_eig(res.pca, addlabels = TRUE) +
+  geom_hline(yintercept=VPmedio, linetype=2, color="red")
+kable(eig.val[1:6,])
+K=3
+```
+
+A partir del modelo con 10 componentes, seleccionamos el número de componentes principales (PC) más adecuado. Para ello, hemos generado el gráfico del codo, añadido la recta que indica la varianza explicada por cada PC si todas explicaran los mismo y la tabla con la varianza explicada por cada PC.
+
+Seleccionamos `r K` PCs, que explican un `r round(eig.val[K,"cumulative.variance.percent"], 1)`% del total de variabilidad de los datos, porque cumplen tanto con el criterio del codo como con el de superar la "varianza media" explicada por PC.
+
+```{r pca }
+K = 3
+res.pca = PCA(beisbol, scale.unit = TRUE, graph = FALSE, ncp = K, 
+              quali.sup = which(tabla$tipo == "binary"),
+              quanti.sup = 17:19) 
+eig.val <- get_eigenvalue(res.pca)
+VPmedio = 100 * (1/nrow(eig.val))
+fviz_eig(res.pca, addlabels = TRUE) +
+  geom_hline(yintercept=VPmedio, linetype=2, color="red")
+kable(eig.val[1:6,])
+```
+
+
+--------
+
+*EJERCICIO 1*
+
+*¿Qué pasaría si solamente quisiera centrar las variables sin escalarlas? ¿Podría hacerlo con la función PCA de FactoMineR? ¿Cómo debería proceder?*
+
+Sin centrar las variables, poniendo scale.unit = FALSE, nos sale una única componente principal que explica el 100% de la variabilidad.
+
+--------
+
+
+
+# Validación del modelo PCA
+
+## Detección de anómalos con T2-Hotelling
+
+El estadístico $T^2$ de Hotelling nos permite identficar valores anómalos extremos, que podrían estar condicionando el modelo, es decir, la creación de las PCs. Este estadístico se calcula a partir de los scores, por ello, visualizaremos también los gráficos de scores para las PCs seleccionadas, además del gráfico con los valores del $T^2$ tomando las `r K` Ps e incluyendo los límites de confianza al 95% y 99%, en naranja y rojo, respectivamente. 
+
+```{r T2, fig.width=10, fig.height=5}
+# Gráfico T2 Hotelling
+misScores = res.pca$ind$coord[,1:K]
+miT2 = colSums(t(misScores**2) / eig.val[1:K,1])
+I = nrow(beisbol)
+F95 = K*(I**2 - 1)/(I*(I - K)) * qf(0.95, K, I-K)
+F99 = K*(I**2 - 1)/(I*(I - K)) * qf(0.99, K, I-K)
+plot(1:length(miT2), miT2, type = "l", xlab = "Jugadores", ylab = "T2")
+abline(h = F95, col = "orange", lty = 2, lwd = 2)
+abline(h = F99, col = "red3", lty = 2, lwd = 2)
+anomalas = which(miT2 > F95)
+anomalas
+# Score plots
+library(grid)
+library(gridExtra)
+p1 = fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point"), habillage = factor(miT2 > F95))
+p2 = fviz_pca_ind(res.pca, axes = c(1,3), geom = c("point"), habillage = factor(miT2 > F95))
+grid.arrange(p1,p2, nrow = 1)
+```
+
+**Conclusión:** Si nos fijamos en el límite del 95%, esperamos un 5% de falsos positivos, es decir `r round(0.05*I, 0)` jugadores, y hay `r length(anomalas)` jugadores anómalos que superan el límite. Por tanto, podríamos considerar excluir los jugadores con mayor valor de $T^2$, es decir, a `r rownames(beisbol)[which.max(miT2)]`, y recalcular el modelo.
+
+
+--------
+
+*EJERCICIO 2*
+
+*¿Cómo podríamos averiguar qué variable o variables son las "culpables", es decir, han contribuido más a que Pete Rose (entre otros) haya resultado ser una observación anómala?*
+
+--------
+
+*Solución EJERCICIO 2*
+
+Si identificamos la observación anómala en el gráfico de scores, podemos utilizar los gráficos de loadings o los gráficos de variables (que se muestran más adelante) para entender qué variables contribuyen más a que esa observación haya resultado anómala. Otra forma de averiguarlo es mediante el gráfico de contribuciones a la $T^2$ de Hotelling que se muestra a continuación, y que ha sido programado a partir del artículo de Kourti y MacGregor (Journal of Quality Technology, 1996).
+
+
+```{r T2contrib, warning=FALSE, fig.width=8, fig.height=5}
+contribT2 = function (X, scores, loadings, eigenval, observ, cutoff = 2) {
+  # X is data matrix and must be centered (or centered and scaled if data were scaled)
+  misScoresNorm = t(t(scores**2) / eigenval)
+  misContrib = NULL
+  for (oo in observ) {
+    print(rownames(misScores)[oo])
+    print(misScores[oo,])
+    misPCs = which(as.numeric(misScoresNorm[oo,]) > cutoff)
+    lacontri = sapply(misPCs, function (cc) (misScores[oo,cc]/eigenval[cc])*loadings[,cc]*X[oo,])
+    lacontri = rowSums((1*(sign(lacontri) == 1))*lacontri)
+    misContrib = cbind(misContrib, lacontri)
+  }
+  colnames(misContrib) = rownames(misScoresNorm[observ,])
+  return(misContrib)
+}
+```
+
+La función anterior se ha programado para calcular las contribuciones a la $T^2$ de una o más observaciones anómalas. Aplicamos dicha función para calcular las contribuciones de nuestra observación anómala y las representamos gráficamente. 
+
+```{r T2contriPlot, warning=FALSE, fig.width=8, fig.height=5}
+# Recuperamos los datos utilizados en el modelo PCA, centrados y escalados
+beisbolCE = beisbol[,tabla$tipo == "numerical"]
+beisbolCE = beisbolCE[,setdiff(colnames(beisbolCE), c("Salary", "Weight", "Height"))]
+beisbolCE = scale(beisbolCE, center = TRUE, scale = TRUE)
+X = as.matrix(beisbolCE)
+# Calculamos los loadings a partir de las coordenadas de las variables
+# ya que la librería FactoMineR nos devuelve los loadings ponderados 
+# por la importancia de cada componente principal.
+hel = sweep(res.pca$var$coord, 2, sqrt(res.pca$eig[1:K,1]), FUN="/")
+# Calculamos las contribuciones
+mycontrisT2 = contribT2(X = X, scores = misScores, loadings = misLoadings, 
+                        eigenval = eig.val[1:K,1], observ = which.max(miT2),
+                        cutoff = 2)
+
+par(mar = c(10,2.3,3,1))
+barplot(mycontrisT2[,1],las=2, #cex.names = 0.5,
+        main= paste0("Observación: ", rownames(beisbol)[which.max(miT2)]))
+```
+
+
+El gráfico de contribuciones muestra que `r rownames(beisbol)[which.max(miT2)]` es anómalo debido a que tiene valores anormalmente altos (o bajos) en las variables de su carrera profesional (excluyendo *CHmRuns*). Dado que estas estadísticas denotan el rendimiento de un jugador a lo largo de su carrera, tiene sentido que tengan valores altos para los jugadores que en 1986 ya podían ser considerados jugadores veteranos. Además, tiene sentido que un jugador con alto rendimiento obtenga también contratos con sueldos altos. Por lo que hemos optado por mantener a Pete Rose y jugadores con datos anómalos similares en nuetra base de datos.
+
+
+--------
+
+*EJERCICIO 3*
+
+*Supongamos que el número de falsas alarmas fuera 2. ¿Cómo seleccionaríamos los 3 cereales candidatos a ser excluidos del modelo PCA?*
+
+--------
+
+
+
+
+
+
+## Distancia al modelo (SCR)
+
+Ahora estudiaremos la distancia al modelo PCA mediante la Suma de Cuadrados Residual (SCR), que nos ayudará a detectar los valores anómalos moderados, es decir, aquellas observaciones (jugadores) que no están bien explicados por el modelo PCA. Recordemos que los anómalos severos son aquellos detectados con el gráfico $T^2$ de Hotelling pero que presentan una baja SCR.
+
+Para ello, primero calcularemos la matriz de residuos y, a partir de ella, la SCR.
+
+```{r SCR, fig.width=5, fig.height=5}
+myE = X - misScores %*% t(misLoadings) 
+mySCR = rowSums(myE^2)  
+plot(1:length(mySCR), mySCR, type = "l", main = "Distancia al modelo", 
+     ylab = "SCR", xlab = "Jugadores", ylim = c(0,11))
+g = var(mySCR)/(2*mean(mySCR))
+h = (2*mean(mySCR)^2)/var(mySCR)
+chi2lim = g*qchisq(0.95, df = h)
+chi2lim99 = g*qchisq(0.99, df = h)
+abline(h = chi2lim, col = "orange", lty = 2, lwd = 2)
+abline(h = chi2lim99, col = "red3", lty = 2, lwd = 2)
+```
+
+**Conclusión:** En este caso, hay `r sum(mySCR > chi2lim)` jugadores que se salen fuera del límite del 95%, y `r sum(mySCR > chi2lim99)` fuera del límite del 99%
+
+Dado que se podrían considerar falsas alarmas y tampoco distan en exceso del límite (menos de dos veces dicho límite), no descartaremos ninguna observación que supere el 95%. Sin embargo, las observaciones que superan el 99% son: `r names(which(mySCR > chi2lim99))`. Son extremadamente anómalas, y se podría considerar eliminarlas.
+
+**NOS PLANTEAMOS EXCLUIR ESTAS OBSERVACIONES. PARA EL PRÓXIMO DÍA**
+
+Aunque nos planteamos excluir dichas observaciones, vamos a ver a modo de ejemplo, cómo averiguar qué características tienen estos jugadores que los hacen diferentes a las tendencias generales resumidas por el modelo PCA. Para ello, vamos a crear una función que calcule las contribuciones de cada variable a la SCR de una observación concreta. Como ejemplo, generaremos el gráfico de contribuciones para el jugador "Pete Rose" de nuevo.
+
+```{r SCR2, fig.width=5, fig.height=5}
+## Función para calcular las contribuciones a la SCR
+ContriSCR = function(E, SCR) {
+  # E es la matriz de residuos del modelo 
+  # SCR es la suma de cuadrados residual
+  contribucion = NULL
+  for (j in 1:length(SCR)){
+    eind<-E[j,]
+    signo<-sign(eind)
+    contri<-(signo*(eind^2)/SCR[j])*100
+    contribucion<-rbind(contribucion,contri)
+  }
+  rownames(contribucion) = rownames(E)
+  return(contribucion)
+}
+## Calculamos las contribuciones de todas las observaciones
+mycontris = ContriSCR(E = myE, SCR = mySCR)
+## Gráfico para Special_K
+barplot(mycontris["Pete Rose",],las=2, cex.names = 0.7,
+        main=c('Contribuciones a SCR para Pete Rose'))
+```
+
+
+Como podemos observar, Pete Rose tiene una cantidad anormalmente baja de Home Runs a lo largo de su carrera, lo cual le hace tener un patrón diferente a los descritos por el modelo PCA. Esto se puede deber a que realizar Home Runs se considera una de las características más valiosas que un jugador de béisbol puede tener, y Pete Rose no es un jugador que a lo largo de su carrera haya conseguido gran cantidad de éstos. Por otro lado, podemos ver que PutOuts tiene una cantidad elevada, lo que significa que defensivamente, Pete Rose era un jugador más productivo que el patrón general descrito por el modelo PCA.
+
+
+--------
+
+*EJERCICIO 4*
+
+*¿Se puede considerar a All-Bran_with_Extra_Fiber como un valor anómalo severo? En caso afirmativo, ¿implica que debo eliminarlo necesariamente del modelo PCA?*
+
+--------
+
+
+
+# Interpretación del modelo PCA
+
+Una vez excluidos, si es el caso, los valores anómalos y recalculado el modelo PCA sin ellos, procederemos a interpretarlo.
+
+## Gráficos de variables
+
+Empezaremos, por ejemplo, por el gráfico de variables. Como se ha dicho anteriormente, la librería FactoMineR no representa el gráfico de *loadings*, sino un gráfico con los loadings corregidos por la importancia de cada componente $k$ ($\sqrt{\lambda_k}$).
+
+Dado que hemos seleccionado anteriormente 3 PCS, debemos asegurarnos de que las 3 se representan en nuestros gráficos. Aquí, por ejemplo, hemos optado por representar la 1 frente a la 2 y la 1 frente a la 3:
+
+
+
+```{r loading, fig.width=5, fig.height=5}
+fviz_pca_var(res.pca, axes = c(1,2), repel = TRUE, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+fviz_pca_var(res.pca, axes = c(1,3), repel = TRUE, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+```
+
+En los gráficos anteriores, las variables han sido coloreadas por su contribución a las PCs representadas en el gráfico. En color azul se muestran las variables auxiliares numéricas, que no han sido utilizados para la obtención matemática del modelo PCA, pero que se han proyectado sobre el nuevo espacio de componentes.
+
+Podemos observar que la PC3 está casi exclusivamente explicada por las variables Errors y Assists. Estas son estadísticas defensivas, en las que el jugador o bien coge la bola bateada en su dirección y realiza una eliminación de atacante (Assist) o no coge la bola que viene en su dirección (Error).
+
+Por otro lado, la PC1 está explicada por la mayoría de estadísticas de bateo, donde las variables relacionadas con los números totales a lo largo de la carrera de un jugador contribuyendo en mayor medida que las de la temporada del '86.
+
+Para terminar, la PC2 está explicada por la mayoría de estadísticas de bateo, donde podemos observar una correlación negativa entre las variables correspondientes al total de la carrera profesional del jugador y las variables de la temporada del 86.
+
+A continuación, generamos gráficos de dispersión para comprobar las hipótesis sobre relaciones entre variables sugeridas por el PCA:
+
+```{r disper, fig.width=10, fig.height=10}
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * abs(r))
+}
+pairs(beisbol[,c("CAtBat" , "CHits", "CHmRun", "CRun", "CRBI", "CWalks", "Years")],
+      lower.panel = panel.cor, pch = 20, col = "red3")
+```
+
+A la vista de estos gráficos y correlaciones, ¿se podrían considerar ciertas las afirmaciones que hemos hecho al interpretar el gráfico de variables del PCA?
+
+**NOTA IMPORTANTE:** No es obligatorio hacer siempre estas comprobaciones. Las hemos hecho para ayudar a entender mejor la interpretación del PCA. No obstante, nunca está de más generar aquellos gráficos que consideréis necesarios para ilustrar las conclusiones extraídas del PCA acerca de la relación entre variables y corroborarlas.
+
+
+
+En el caso de que no se pueda visualizar bien en los gráficos anteriores la importancia o contribución de cada variable a cada componente, podemos usar de forma complementaria un gráfico auxiliar como el siguiente para la PC que deseemos representar (en este ejemplo se ha elegido la primera PC):
+
+```{r loading2, fig.width=5, fig.height=5}
+fviz_contrib(res.pca, choice = "var", axes = 1)
+```
+
+
+Otra opción, es representar en los gráficos de variables, solo aquellas variables con mayor contribución a las PCs, seleccionando para ello los argumentos apropiados.
+
+
+--------
+
+*EJERCICIO 5*
+
+*Genera el gráfico de LOADINGS para las dos primeras componentes principales y compáralo con el gráfico de variables obtenido anteriormente mediante FactoMineR.*
+
+La variable misLoadings está definida como loadings para todas las PCs. Son los loadings sin la corrección de factomineR. Se pueden representar en un gráfico representando las dimensiones.
+
+--------
+
+*EJERCICIO 6*
+
+*Calcula el porcentaje de variabilidad de cada variable $k$ que queda explicado por el modelo PCA ($R^2_k(cum)$) obtenido y represéntalo en un gráfico. ¿Qué variable está mejor explicada por el modelo PCA?*
+
+--------
+
+
+## Gráficos de observaciones: Score plot
+
+En esta sección, mostraremos solo los gráficos para las 2 primeras componentes principales. Se tienen que analizar también la PC 3, de forma análoga a como se hizo para las variables. Queda como ejercicio, pues, explorar e interpretar el gráfico que incluya la PC3.
+
+```{r score, fig.width=8, fig.height=5}
+# Gráfico de scores para todos los cereales coloreados por fabricante
+fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), 
+             col.ind = beisbol$Salary, repel = TRUE, labelsize = 2)
+```
+
+**TODO: HACER TRANSFORMACIÓN LOGARÍTMICA SOBRE LOS DATOS DE SALARY PARA QUE LOS COLORES DEL GRÁFICO NO SEAN TAN EXTREMOS**
+
+
+
+```{r score2, fig.width=5, fig.height=5}
+# Gráficos de scores para los 30 cereales mejor representados en las PCs 1 y 2
+# coloreados por la estantería y con la elipse de confianza para cada estantería
+fviz_pca_ind(res.pca, axes = c(1,2), geom = c("point", "text"), repel = TRUE, labelsize = 2,
+             select.ind = list("cos2"=30), habillage = "DivisionE", addEllipses = TRUE)
+```
+
+
+En este segundo gráfico, no podemos observar una agrupación de los cereales en función de la estantería del supermercado en la que son colocados, aunque sí que parece que los cereales con más contenido en fibra, potasio y proteínas (y, por tanto, más rating), tienden a ser colocados en la estantería más alta (la 3). 
+
+
+
+
+
+## Biplot
+
+En ocasiones es útil representar en el mismo gráfico las variables y las observaciones, para mejorar la interpretación. No obstante, hay que afinar en la forma de representar estos gráficos porque si tenemos muchas observaciones y/o variables es posible que no sea la mejor opción porque quizás no se visualice bien lo que queremos mostrar.
+
+En este caso, no mostraremos el nombre de los cereales, solo el de las variables. Colorearemos los cereales según el fabricante, por ejemplo.
+
+```{r biplot, fig.width=8, fig.height=5}
+fviz_pca_biplot(res.pca, axes = c(1,2), labelsize = 3,
+                label = "var", repel = TRUE, 
+                col.ind = beisbol$LeagueA)
+```
+
+
+----------
+
+**NOTA IMPORTANTE**
+
+En esta práctica guiada se han mostrado distintas gráficas generadas a partir del modelo PCA y con distintas opciones de representación, coloreado, etiquetado, etc. No todas las gráficas son igual de explicativas o útiles en todos los análisis PCA. Dependiendo de las características de la BBDD a analizar, se deben elegir las gráficas y opciones más apropiadas, que ayuden a interpretar y visualizar mejor los resultados.  
+
+
+
+
