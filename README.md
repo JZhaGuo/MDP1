@@ -1,6 +1,6 @@
 # MDP1
 
-## Notas varias
+## Notas varias (practica 0?)
 
 - Variables a excluir de la BBDD → todas se pueden analizar y no son constantes (haya variabilidad)
 
@@ -45,11 +45,7 @@
 ## PENDIENTE
 
 PCA: 
-- hacer los ejercicios sueltos - ejer 5: misLoadings y añadir flechas y leyendas 
-
-- variables categóricas no binarias
-
-- gráficos scores → salary, peso, altura… → no hace falta rangos (cambiar habillage por col.ind→ salary transformación logarítmica
+- Acabar ejercicio 6: variabilidad explicada de las variables
 
 
 AFC:
