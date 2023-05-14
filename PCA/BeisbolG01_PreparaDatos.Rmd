@@ -1,0 +1,266 @@
+---
+title: "Preparación de la Base de Datos de Béisbol"
+author: "Grupo 01"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(dplyr)
+library(mice)
+library(arules)
+```
+
+
+
+# Lectura de datos
+
+Cargamos los datos.
+
+```{r datos}
+jugadores = read.csv("jugadores.csv", row.names = 1, 
+                  as.is = TRUE)
+beisbol <- jugadores[, -c(23:37)]
+beisbol$AtBat <- as.numeric(beisbol$AtBat)
+beisbol$Hits <- as.numeric(beisbol$Hits)
+beisbol$HmRun <- as.numeric(beisbol$HmRun)
+beisbol$Runs <- as.numeric(beisbol$Runs)
+beisbol$RBI <- as.numeric(beisbol$RBI)
+beisbol$Walks <- as.numeric(beisbol$Walks)
+beisbol$Years <- as.numeric(beisbol$Years)
+beisbol$CAtBat <- as.numeric(beisbol$CAtBat)
+beisbol$CHits <- as.numeric(beisbol$CHits)
+beisbol$CHmRun <- as.numeric(beisbol$CHmRun)
+beisbol$CRuns <- as.numeric(beisbol$CRuns)
+beisbol$CRBI <- as.numeric(beisbol$CRBI)
+beisbol$CWalks <- as.numeric(beisbol$CWalks)
+beisbol$PutOuts <- as.numeric(beisbol$PutOuts)
+beisbol$Assists <- as.numeric(beisbol$Assists)
+beisbol$Errors <- as.numeric(beisbol$Errors)
+beisbol$Salary <- as.numeric(beisbol$Salary)
+beisbol$Weight <- as.numeric(beisbol$Weight)
+beisbol$Height <- as.numeric(beisbol$Height)
+```
+
+Se han registrado `r ncol(beisbol)` variables para `r nrow(beisbol)` jugadores de béisbol de la temporada 86.
+
+
+
+# Tipos de variables
+
+Creamos una tabla con las variables en filas que incluya una columna con el tipo de variable. Esta tabla auxiliar la podremos utilizar después para seleccionar variables de un determinado tipo y explorarlas o analizarlas, por lo que es muy recomendable cuando tenemos muchas variables y, además, son de distinta naturaleza por lo que requieren distinto tratamiento.
+
+```{r tipos, echo = TRUE}
+tabla = data.frame("variable" = colnames(beisbol),
+                      "tipo" = c(rep("numerical", 13), rep("categorical",2),
+                                 rep("numerical", 4),
+                                 rep("numerical", 2), "categorical"), stringsAsFactors = FALSE)
+                   
+rownames(tabla) = tabla$variable
+tabla
+```
+
+**IMPORTANTE:** Si añadimos o quitamos variables de la BBDD, es absolutamente necesario añadirlas o quitarlas también en esta tabla auxiliar porque, para que nos sea útil y no nos lleve a error, debemos tener siempre en ambos objetos las mismas variables y en el mismo orden.
+
+
+# Variables a excluir de la BBDD
+
+## Variables que no se pueden analizar
+
+Crearemos una nueva base de datos descartando, si las hay, variables tipo texto, indicadores u otras variables que no se puedan analizar. En caso de eliminar variables, siempre hay que actualizar al mismo tiempo la tabla auxiliar con el tipo de variables. 
+
+En nuestro caso, no necesitamos descartar el identificador del vehículo porque al leer los datos, lo hemos utilizado como nombre de filas de la base de datos (RECOMENDABLE).
+
+
+## Variables constantes o casi constantes
+
+Comprobaremos ahora si existe alguna variable que no varía (o que varía muy poco) y la eliminaremos también de la base de datos. Esto se comprueba de forma diferente para las variables numéricas y para las variables categóricas (sean binarias o no).
+
+```{r ctes, echo = TRUE}
+## Numéricas
+summary(beisbol[,tabla$variable[tabla$tipo == "numerical"]])
+# Variabilidad de las variables numéricas (desviación típica)
+mySD = apply(beisbol[,tabla$variable[tabla$tipo == "numerical"]], 2, sd)
+# Mejor calcular el coeficiente de variación porque no depende de las unidades o magnitud de las variables
+myMU = colMeans(beisbol[,tabla$variable[beisbol$tipo == "numerical"]])
+myCV = mySD/myMU
+sort(myCV)
+## Categóricas
+apply(beisbol[,tabla$variable[tabla$tipo == "categorical"]], 2, table, useNA = "i")
+apply(beisbol[,tabla$variable[tabla$tipo == "categorical"]], 2,
+      function (x) round(100*table(x)/sum(table(x)), 2))
+## Eliminación de variables
+#beisbol = beisbol[,setdiff(colnames(beisbol), c("Cylinders"))]
+#tabla = tabla[colnames(beisbol),]
+```
+
+
+# Valores inconsistentes o anómalos
+
+Analizaremos ahora si alguna variable tiene valores inconsistentes, es decir, valores que no son posibles dentro del rango de definición de la variable y que por tanto se deben a un error. En ese caso, estos valores se sustituirán por NA convirtiéndose en valores faltantes o perdidos. Los valores inconsistentes se pueden observar tanto en variables numéricas como categóricas.
+
+También estudiaremos la existencia de posibles valores anómalos en las variables numéricas. A veces, estos valores anómalos pueden deberse a un error (serían valores inconsistentes y se sustituirían por NA).Pero otras veces, los valores anómalos son valores posibles pero muy atípicos o extremos. En este último caso, debemos tomar la decisión de mantener la observación anómala en el modelo o eliminarla (no se reemplazan por NA).
+
+
+A continuación se estudian gráficamente las variables numéricas. En primer lugar se realiza un gráfico de cajas y bigotes con todas las variables numéricas. 
+
+```{r anomalos, echo = TRUE}
+# par(mar = c(9,4,2,2))
+boxplot(beisbol[,tabla$variable[tabla$tipo == "numerical"]], las=2)
+# Preguntar si hay que usar el log = 'y' :)
+## CAtBat
+par(mfrow = c(1,2))   # mfcol
+hist(beisbol$CAtBat, 50, xlab = 'CAtBat')
+boxplot(beisbol$CAtBat, xlab = "CAtBat")
+## CHits
+par(mfrow = c(1,2))   # mfcol
+hist(beisbol$CHits, 50, xlab = 'CHits')
+boxplot(beisbol$CHits, xlab = "CHits")
+```
+
+
+Se puede observar un valor muy anómalo en la variable CAtBat. Entendemos que el valor `r max(beisbol$CAtBat)` no es realmente un error (valor inconsistente).
+
+Como los valores anómalos que apreciamos en las variables CAtBat, CHits y CRuns son el valor máximo, vamos a utilizar la función which.max para ver a quién corresponde.
+
+```{r anomalos2, echo = TRUE}
+row.names(beisbol[which.max(beisbol$CAtBat),])
+row.names(beisbol[which.max(beisbol$CHits),])
+row.names(beisbol[which.max(beisbol$CRuns),])
+```
+No. Hemos decidido no eliminar al jugador 'Pete Rose'.
+
+En el resto de variables no se detectan inconsistencias y mantendremos las observaciones anómalas en la BBDD.
+
+# Transformación y recodificación de variables
+
+No siempre es necesario transformar o recodificar variables, depende del tipo de análisis que tengamos previsto hacer y de cómo y para qué vamos a utilizar una variable. A continuación se muestran algunos ejemplos de transformación o recodificación de variables que podrían ser útiles en ciertos casos. 
+
+
+## Transformar variables categóricas a variables 0-1
+
+Si queremos incluir una variable categórica en un modelo que solo acepta variables numéricas (como por ejemplo PCA, clustering, etc.), necesitaremos recodificar la variable categórica a variables numéricas 0-1 para poder incluirla en dicho modelo. Tenemos dos posibilidades. Elegiremos una u otra dependiendo del modelo. La primera es, como se hace en los modelos de regresión lineal clásicos, definir una de las $K$ categorías como referencia y definir variables binarias para las $K-1$ categorías restantes. La segunda posibilidad, para modelos PCA, PLS, clustering, etc. es crear tantas variables binarias como categorías, es decir, $K$. Veamos, por ejemplo, cómo recodificar la variable "Fuel_Type" en tantas variables binarias 0-1 como categorías tiene esta variable:
+
+```{r recodifica1, echo = TRUE}
+mmLeague = model.matrix(~ 0 + League, data = beisbol)
+head(mmLeague)
+mmDivision = model.matrix(~ 0 + Division, data = beisbol)
+head(mmDivision)
+mmNewLeague = model.matrix(~ 0 + NewLeague, data = beisbol)
+head(mmNewLeague)
+```
+
+No se muestra el otro caso (convertir en $K-1$ variables dummy) porque si nuestra variable se convierte a factor en R, los modelos de regresión crearán automáticamente las variables dummy.
+
+
+
+
+Ahora crearemos una nueva base de datos en la que todas las variables serán numéricas o binarias 0-1. Esta base de datos se podría utilizar por ejemplo para hacer un PCA sin necesidad de dejar fuera ninguna variable.
+
+```{r nueva, echo = TRUE}
+# Creamos nueva base de datos solo con variables numéricas y su tabla auxiliar correspondiente
+beisbolBin = beisbol[,setdiff(colnames(beisbol), 
+                           tabla$variable[tabla$tipo == "categorical"])]
+tabla2 = tabla[colnames(beisbolBin),]
+beisbolBin = data.frame(beisbolBin, mmLeague, mmDivision, mmNewLeague)
+tabla2 = rbind(tabla2, 
+                  data.frame("variable" = c(colnames(mmLeague), colnames(mmDivision), colnames(mmNewLeague)),
+                             "tipo" = "binary"))
+rownames(tabla2) = tabla2$variable
+tabla2
+```
+
+## Transformaciones para conseguir normalidad o simetría
+# Preguntar para qué sirve esto
+
+<!--En algunas ocasiones, es necesario o recomendable que ciertas variables sigan una distribución aproximadamente normal o, al menos, simétrica. Hay muchas transformaciones para conseguir dicha normalidad o simetría, entre ellas la transformación logarítmica en casos de asimetría positiva.
+A continuación, transformaremos logarítmicamente la variable "Guarantee_Period" y representaremos su función de densidad de probabilidad antes y después de la transformación.
+{r transforma, echo = TRUE}
+plot(density(toyota3$Guarantee_Period), main = "Variable original", col = "red3", 
+     lwd = 2, xlab = "Guarantee Period")
+toyota3$Guarantee_Period = log2(toyota3$Guarantee_Period)
+plot(density(toyota3$Guarantee_Period), main = "Variable transformada", col = "red3", 
+     lwd = 2, xlab = "Guarantee Period")
+Vemos que, en este caso, no ha funcionado muy bien la transformación logarítmica y tendríamos que buscar otro tipo de transformaciones más sofisticadas.
+ -->
+
+
+# Valores faltantes 
+
+## Imputación por un valor como la media o la mediana
+
+Generaremos en primer lugar una tabla resumen con el número y porcentaje de valores faltantes en cada variable en la base de datos, mostrando solo las variables con valores faltantes.
+
+```{r missing, echo = TRUE}
+numNA = apply(beisbolBin, 2, function(x) sum(is.na(x)))
+percNA = round(100*apply(beisbolBin, 2, function(x) mean(is.na(x))), 2)
+tablaNA = data.frame("tipo" = tabla2[,-1], numNA, percNA)
+tablaNA[tablaNA$numNA > 0,]
+```
+
+Sobre las variables weight y height, sus valores faltantes se deben a que no hemos conseguido el peso y la altura de esos jugadores. En cambio, de la variable Salary es normal que no se tenga toda la información acerca del salario, ya que estamos hablando del año 1986, donde no era algo tan común.
+
+
+## Imputación mediante la librería mice
+
+Cuanto tenemos varios valores faltantes es más aconsejable utilizar métodos de imputación que tengan en cuenta la distribución de los valores observados en todas las variables para predecir los valores faltantes. Una buena opción es la librería *mice*, que admite tanto variables numéricas como categóricas  e imputa distintos tipos de valores faltantes (no solo MCAR), entre otras muchas funcionalidades.
+
+Para aprender a utilizar la librería *mice*, tomaremos los datos de ejemplo "agingdata.RData", que incluyen las variables: Education, Income, Perceived satisfaction of social support, Social coping, Total life events scale, Depression scale, and Self-rated help.
+
+Montpetit A, Bergeman CS (2007). “Dimensions of control: Mediational analyses of the stress Chealth relationship.” Personality and Individual Differences, 43, 2237 - 2248.
+
+Cargamos los datos y hacemos un pequeño resumen descriptivo para familiarizarnos con ellos. Como se observa a continuación, podemos considerar numéricas todas las variables. En caso de que tuviéramos alguna variable categórica, bastaría con convertirla a factor para que *mice* la trate adecuadamente.
+
+```{r aging1, echo = TRUE}
+beisbolBin <- beisbolBin[!is.na(beisbolBin$Salary),]
+numNA = apply(beisbolBin, 2, function(x) sum(is.na(x)))
+percNA = round(100*apply(beisbolBin, 2, function(x) mean(is.na(x))), 2)
+tablaNA = data.frame("tipo" = tabla2[,-1], numNA, percNA)
+tablaNA[tablaNA$numNA > 0,]
+```
+
+
+También podemos explorar la distribución de valores faltantes con la librería *mice*, que es la que utilizaremos para la imputación.
+
+```{r aging6, echo = TRUE, fig.height=10,fig.width=8, message=FALSE}
+library(mice)
+patrones = md.pattern(beisbolBin, rotate.names = TRUE)
+```
+
+
+Imputaremos los valores faltantes restantes utilizando la librería *mice* y, dado que todas nuestras variables imputadas son numéricas, generaremos gráficos de cajas y bigotes para mostrar cómo cambia la distribución de los valores de cada variable con valores faltantes (todas en este caso) antes y después de la imputación.
+
+```{r aging7, echo = TRUE, fig.width=8, fig.height=10}
+beisbolMice = beisbolBin
+beisbolImp = mice(beisbolMice, seed = 123, m = 5, print = FALSE, method = NULL) # con m=5 generamos 5 matrices imputadas
+mice::stripplot(beisbolImp)
+head(beisbolImp$Height$Weight)
+beisbolImp = complete(beisbolImp)  # elegimos la primera matriz imputada
+summary(beisbolImp)
+par(mfrow = c(2,4))
+for (i in 1:ncol(beisbolMice)) {
+  boxplot(list("antes" = beisbolMice[,i], "después" = beisbolImp[,i]), 
+          col = heat.colors(2), main = colnames(beisbolMice)[i], las = 2)
+}
+# BeisbolImp es la que está predicha
+```
+
+
+Como podemos observar, la imputación no ha modificado de manera importante las distribuciones de las variables imputadas. Por tanto, podemos utilizar la BBDD *beisbolImp* para nuestros análisis posteriores.
+
+```{r output file, include=FALSE}
+write.csv(beisbolImp, "beisbol.csv", row.names=TRUE)
+```
