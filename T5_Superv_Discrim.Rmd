@@ -30,28 +30,40 @@ library(MASS) # Para el análisis discriminante
 A la hora de realizar algoritmos de aprendizaje automatizado sobre nuestra base de datos de Jugadores de beisbol, primero debemos definir una variable respuesta. En nuestro caso, vamos a tomar la variable salario como esta variable respuesta, cambiando sus valores a categorías (Salario alto o salario bajo) de forma que podamos clasificar a los jugadores en dichas categorías basandonos en su rendimiento en el campo.
 
 ```{r datosBeisbol}
-beisbol = read.csv("beisbol.csv", row.names = 1, as.is = TRUE)
-summary(beisbol)
+beisbolOG = read.csv("beisbol.csv", row.names = 1, as.is = TRUE)
+summary(beisbolOG)
 ```
 
 Como podemos ver, la media de la variable Salary es 516280, por lo que vamos a separar en dos grupos: menos que la media, y más que la media. Estas agrupaciones son tentativas para realizar nuestro primer análisis.
 
 ```{r}
 
-SalaryCat <- as.factor(ifelse(beisbol$Salary < 516280, 'Bajo',
-                          ifelse(beisbol$Salary > 516280, 'Alto', 0)))
+SalaryCat <- as.factor(ifelse(beisbolOG$Salary < 516280, '0',
+                          ifelse(beisbolOG$Salary > 516280, '1', 0)))
+
+beisbol <- beisbolOG[,-c(17)] # Quitamos la columna Salary para no estudiarla en la predicción del propio salary lol lmao
 
 beisbol <- data.frame(beisbol, SalaryCat)
 
 ttt = table(beisbol$SalaryCat)
 kable(ttt)
 kable(100*ttt/sum(ttt))
+
+
 ```
+
+```{r percent}
+
+beisbol
+```
+
+
 
 Como vemos, hemos dividido en las categorías acorde a la media, y observamos que hay una división 60/40 entre los que tienen un salario bajo y alto, respectivamente. Una vez hemos hecho esto, procedemos a separar los datos de entrenamiento de los datos de validación.
 
 ```{r percent}
 set.seed(100)
+
 trainFilas = createDataPartition(beisbol$SalaryCat, p=0.8, list=FALSE) # Números de las filas
 trainDatos = beisbol[trainFilas,] # Separación de las filas de entrenamiento
 testDatos = beisbol[-trainFilas,] # Separación de las filas que no son de entrenamiento (test)
@@ -62,7 +74,181 @@ kable(cbind(num, perc))
 myTrainControl = trainControl(method = "repeatedcv",  # k-fold
                               number = 10,  # num folds
                               repeats = 30) # num veces a repetir CV
+
+
 ```
+
+
+
+A continuación, vamos a generar un modelo de análisis discriminante que nos permita clasificar a los jugadores en las dos categorías de salario.
+
+Para ello, obtendremos la FDL a partir de los datos de entrenamiento mediante el esquema de validación cruzada previamente definido. Aunque en este caso no vamos a optimizar ningún hiperparámetro, sí que nos permitirá estimar el error de clasificación en los datos de entrenamiento de forma más fidedigna.
+
+**Nota 1:** En LDA se obtienen los mismos resultados de clasificación
+centrando y escalando las variables que sin centrarlas y escalarlas (mismas probabilidades a posteriori), pero escalar nos permitirá interpretar los resultados para identificar las variables más discriminantes.
+
+**Nota 2:** En este ejemplo, caret está utilizando la función lda() de la librería MASS para hacer el análisis discriminante. Por tanto, se pueden incluir también en la función train() los argumentos propios de la función lda().
+
+
+```{r cancer1}
+set.seed(100)  ## Fijamos la semilla aleatoria para que los resultados de la CV sean los mismos en cada ejecución
+trainDatosESC = trainDatos
+trainDatosESC[,-25] = scale(trainDatos[,-25])  
+modeloTR = train(SalaryCat ~ ., data = trainDatosESC, method='lda', 
+                 trControl = myTrainControl)  
+modeloTR
+# modeloTR$method
+modeloTR$finalModel
+# modeloTR$finalModel$scaling  ## Coeficientes de las variables en FDL
+modeloTR$results
+dim(modeloTR$resample)
+head(modeloTR$resample)
+```
+
+
+Por defecto, la librería *caret* nos devuelve la exactitud (*Accuracy*) y el coeficiente Kappa. Nos devuelve la media y desviación típica de estos indicadores para los 300 modelos entrenados en la CV aplicados sobre el *fold* que se deja fuera para validar. Podemos observar que son valores medianamente altos, sobre todo la accuracy. La kappa se queda en un 0'50.
+Esto nos indica que el LDA permite clasificar los jugadores bien. 
+
+Los resultados generados también nos devuelven la siguiente información:
+
+* Las probabilidades a priori utilizadas son las observadas en la muestra. Si pensamos que realmente el porcentaje de tumores malignos en la realidad es diferente al de la muestra, deberíamos cambiar las probabilidades a priori.
+
+* Los coeficientes (LD1) de la función discriminante nos permitirán seleccionar las variables más discriminantes a la hora de clasificar los tumores.
+
+
+
+----------
+
+*EJERCICIO 4*
+
+*Investiga si se podría haber hecho el centrado y escalado de los datos con la propia función train() y cómo lo habríamos hecho. ¿Se obtienen los mismos resultados?*
+
+El centrado y escalado sí se puede hacer dentro de la propia función train(). Los resultados sí son los mismos, puesto que son los mismos datos. 
+
+----------
+
+
+Como habíamos indicado anteriormente, vamos a obtener la matriz de confusión del modelo final aplicado a los datos de entrenamiento y a los datos test, así como otras medidas del error adicionales. 
+
+Realmente, para evaluar la bondad de clasificación del modelo, sería más adecuado analizar la matriz de confusión obtenida a partir de los datos test. Sin embargo, es conveniente explorar primero qué pasa con los datos de entrenamiento ya que, si con ellos no se obtienen buenos resultados, debemos seguir perfeccionando nuestro modelo o buscando otros modelos mejores.
+
+Para la matriz de confusión, siempre hay que definir que entendemos como casos positivos (P) o negativos (N). En este caso, como queremos un método para detectar los tumores malignos con la mayor precisión posible, elegiremos como positivos los salarios altos.
+
+**Nota:** Los datos test siempre deben escalarse de la misma forma en la que se han escalado los datos de entrenamiento, es decir, utilizando la media y desviación típica de las variables sobre los datos de entrenamiento. Si realizamos el centrado y escalado dentro de la propia función utilizada para generar el modelo, no será necesario porque la función *predict* lo tendrá en cuenta. En nuestro caso, como centramos y escalamos los datos de entrenamiento fuera de la función con *scale*, es necesario que hagamos lo propio con los datos test.
+
+
+```{r cancer2}
+# Datos de entrenamiento
+ajusteTR = predict(modeloTR, type = "raw")
+head(ajusteTR)
+caret::confusionMatrix(ajusteTR, factor(trainDatosESC$SalaryCat), positive = "1")
+
+# Datos test
+testDatosESC = testDatos
+testDatosESC[,-25] = scale(testDatos[,-25], center = colMeans(trainDatos[,-25]), 
+                     scale = apply(trainDatos[,-25], 2, sd))
+ajusteTest = predict(modeloTR, testDatosESC, type = "raw") 
+caret::confusionMatrix(ajusteTest, factor(testDatos$SalaryCat), positive = "1")
+```
+
+Como podemos observar en estos resultados, las medidas del error de clasificación son buenas tanto en los datos de entrenamiento como en los datos test. Podemos observar que todos los valores de accuracy se encuentran por encima de 0'75, mientras que la kappa tiene unos valores más bajos, de alrededor de 0'5.
+
+Vemos que en ambos casos los valores de accuracy y kappa son bastante altos, y las medidas de sensibilidad y especificidad de los datos test también es alta. La más baja se encuentra en los valores de sensibilidad de los datos test, que es 0'6.
+
+
+
+----------
+
+*EJERCICIO 5*
+
+*Crea una función que te permita calcular el coeficiente de correlación de Matthews (MCC) a partir de la matriz de confusión. Aplícala para calcular el MCC sobre los datos test del ejemplo anterior.*
+
+Ver si se pueden sacar los datos de la matriz de confusión sin hardcodearlos. Luego aplicar la fórmula (diapositiva 11).
+
+----------
+
+
+
+Vamos a generar la curva ROC del modelo LDA para los datos test:
+
+```{r beisbol2roc, warning=FALSE, message=FALSE}
+library(pROC)
+Y = testDatos$SalaryCat
+ajusteTestProb = predict(modeloTR, testDatosESC, type = "prob") 
+head(ajusteTestProb)
+miroc = roc(Y ~ ajusteTestProb[,"1"], plot = TRUE, print.auc = TRUE, col = "red3") 
+# Elementos de la lista que devuelve al función roc:
+names(miroc)
+```
+
+Como podemos observar en el gráfico, el área bajo la curva (AUC) es cercana a 1, lo que muestra que el modelo LDA es muy buen clasificador para estos datos.
+
+----------
+
+*EJERCICIO 6*
+
+*A partir de los resultados de la curva roc, ¿podrías calcular el índice de Youden y obtener el valor de la probabilidad de clasificación (p) para el que se maximiza el índica de Youden?*
+
+Igual que el ejercicio anterior, si conseguimos sacar los datos se puede aplicar la fórmula de forma sencilla (diapositiva 10). Se interpreta como (-1, 1) y cuanto más cercano a 1, mejor clasificado (si es 0, es que los datos están clasificados aleatoriamente).
+
+----------
+
+
+Veamos la representación gráfica de las puntuaciones discriminantes sobre, por ejemplo, los datos de entrenamiento: 
+
+```{r cancer3}
+z = as.matrix(trainDatosESC[,-25]) %*% modeloTR$finalModel$scaling
+plot(density(z[trainDatos$SalaryCat == "0"]), col = 4, xlab = "z",
+     xlim = range(z), main = "Salario de los jugadores", lwd = 2)
+lines(density(z[trainDatos$SalaryCat == "1"]), col = 2, lwd = 2)
+abline(v = mean(z[trainDatos$SalaryCat == "0"]), col = 4, lty = 2, lwd = 2)
+abline(v = mean(z[trainDatos$SalaryCat == "1"]), col = 2, lty = 2, lwd = 2)
+```
+
+
+Por último, vamos a seleccionar las variables que más han contribuido a clasificar los tumores. Para ello, evaluaremos sus coeficientes (en valor absoluto) en la FDL. Representaremos en sendos diagramas de cajas y bigotes, la diferencia entre los valores de la variable más discriminante y de una de las menos discriminantes entre los dos grupos de tumores. 
+
+```{r cancer4}
+myW = modeloTR$finalModel$scaling[,1]
+barplot(sort(abs(myW), decreasing = TRUE), las = 2, cex.names = 0.5) 
+par(mfrow = c(1,2))
+boxplot(CHits ~ SalaryCat, data = trainDatos, col = "grey", notch = TRUE)
+boxplot(Weight ~ SalaryCat, data = trainDatos, col = "grey", notch = TRUE)
+```
+
+Efectivamente, los gráficos de cajas y bigotes confirman cómo la primera variable (*CHits*) diferencia bastante bien los dos tipos de salarios, al contrario que la segunda variable (*Weight*).
+
+Con esto podemos deducir que el salario se diferencia bien en función de los Hits a lo largo de la carrera que ha realizado un jugador, dado que los boxplot no se solapan. Por otro lado, el peso del jugador no es un factor determinante en el salario, puesto que los boxplot están casi completamente solapados.
+
+
+
+----------
+
+*EJERCICIO 7*
+
+*Crea un gráfico de barras que represente las variables ordenadas según su poder discriminante pero que muestre los coeficientes con su signo correspondiente (no en valor absoluto). Colorea con distinto color las barras de coeficientes positivos o negativos.*
+
+Si quitamos el valor absoluto de la variable myW a la hora de realizar el barplot:
+
+
+```{r noabs}
+variables = colnames(beisbol)[-25]
+
+
+# Ordenar las variables y coeficientes de mayor a menor poder discriminante
+orden <- order(abs(myW), decreasing = TRUE)
+myW_ordenados <- myW[orden]
+variables_ordenadas <- variables[orden]
+
+# Vector de colores para coeficientes positivos y negativos
+colores <- ifelse(myW_ordenados >= 0, "blue", "red")
+
+# Crear el gráfico de barras con los coeficientes y sus signos correspondientes
+barplot(myW_ordenados, names.arg = variables_ordenadas, col = colores, main = "Gráfico de Barras de Coeficientes",
+        xlab = "Variables", ylab = "Coeficientes", las = 2, cex.names = 0.5)
+```
+
+----------
 
 
 # Practica Ejemplo:
@@ -312,6 +498,8 @@ Efectivamente, los gráficos de cajas y bigotes confirman cómo la primera varia
 *Crea un gráfico de barras que represente las variables ordenadas según su poder discriminante pero que muestre los coeficientes con su signo correspondiente (no en valor absoluto). Colorea con distinto color las barras de coeficientes positivos o negativos.*
 
 ----------
+
+**HASTA AQUÍ HECHO EL 14/05**
 
 
 
