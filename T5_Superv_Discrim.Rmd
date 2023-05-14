@@ -1,0 +1,465 @@
+---
+title: "Aprendizaje Supervisado y Análisis Discriminante"
+author: "Sonia Tarazona"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: false
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(caret)
+# Librería para validación de métodos supervisados
+# https://cran.r-project.org/web/packages/caret/vignettes/caret.html
+# http://topepo.github.io/caret/index.html
+library(MASS) # Para el análisis discriminante
+```
+
+
+# APRENDIZAJE SUPERVISADO
+
+## Predicciones de salario
+
+A la hora de realizar algoritmos de aprendizaje automatizado sobre nuestra base de datos de Jugadores de beisbol, primero debemos definir una variable respuesta. En nuestro caso, vamos a tomar la variable salario como esta variable respuesta, cambiando sus valores a categorías (Salario alto o salario bajo) de forma que podamos clasificar a los jugadores en dichas categorías basandonos en su rendimiento en el campo.
+
+```{r datosBeisbol}
+beisbol = read.csv("beisbol.csv", row.names = 1, as.is = TRUE)
+summary(beisbol)
+```
+
+Como podemos ver, la media de la variable Salary es 516280, por lo que vamos a separar en dos grupos: menos que la media, y más que la media. Estas agrupaciones son tentativas para realizar nuestro primer análisis.
+
+```{r}
+
+SalaryCat <- as.factor(ifelse(beisbol$Salary < 516280, 'Bajo',
+                          ifelse(beisbol$Salary > 516280, 'Alto', 0)))
+
+beisbol <- data.frame(beisbol, SalaryCat)
+
+ttt = table(beisbol$SalaryCat)
+kable(ttt)
+kable(100*ttt/sum(ttt))
+```
+
+Como vemos, hemos dividido en las categorías acorde a la media, y observamos que hay una división 60/40 entre los que tienen un salario bajo y alto, respectivamente. Una vez hemos hecho esto, procedemos a separar los datos de entrenamiento de los datos de validación.
+
+```{r percent}
+set.seed(100)
+trainFilas = createDataPartition(beisbol$SalaryCat, p=0.8, list=FALSE) # Números de las filas
+trainDatos = beisbol[trainFilas,] # Separación de las filas de entrenamiento
+testDatos = beisbol[-trainFilas,] # Separación de las filas que no son de entrenamiento (test)
+
+num = table(trainDatos$SalaryCat)
+perc = 100*num/sum(num)
+kable(cbind(num, perc))
+myTrainControl = trainControl(method = "repeatedcv",  # k-fold
+                              number = 10,  # num folds
+                              repeats = 30) # num veces a repetir CV
+```
+
+
+# Practica Ejemplo:
+
+# APRENDIZAJE SUPERVISADO
+
+## Ejemplo 1: Cáncer de mama
+
+Leemos los datos y observamos que las columnas están nombradas como V1, V2, etc., por lo que cambiamos los nombres de las columnas por los nombres de las variables estudiadas. 
+Además, para cada individuo, tenemos distintos valores de cada una de las 10 variables
+anteriores, por lo que en la base de datos se proporciona la media (m),
+error estándar (se) y el peor valor (peor). Por eso tenemos los correspondientes 30 nombres de variables, en lugar de 10.
+
+El objetivo es utilizar estas variables predictoras para clasificar el tumor en benigno o maligno (variable respuesta). 
+
+A continuación, y dado que nuestra variable respuesta es categórica, exploraremos el número y porcentaje de individuos en cada categoría.
+
+
+```{r datosCancer}
+cancer = read.csv("archivos de datos/BreastCancer.csv", sep = ";", row.names = 1)
+nombres = c("radius", "texture", "perimeter", "area", "smoothness", "compactness", 
+            "concavity", "concave_points", "symmetry", "fractal_dimension")
+colnames(cancer)[-1] = c(paste0(nombres,"_m"), paste0(nombres,"_se"), 
+                         paste0(nombres,"_peor"))
+ttt = table(cancer$diagnosis)
+kable(ttt)
+kable(100*ttt/sum(ttt))
+```
+
+
+Como podemos observar, las clases no están perfectamente equilibradas pero el desequilibrio no es importante.
+
+
+Con la idea de entrenar el modelo con una parte de los datos y valorar su poder predictivo con datos no utilizados en el entrenamiento, vamos a dividir nuestros datos en un conjunto de entrenamiento (80% de la muestra) y un conjunto test (20% de la muestra) utilizando la librería *caret*, que asegura que la proporción de tumores benignos y malignos es la misma en los datos de entrenamiento y de test. Como esta división se realiza aleatoriamente, fijaremos la semilla aleatoria para obtener resultados reproducibles. También diseñaremos el procedimiento de validación cruzada k-fold, con k=10 folds, sobre el conjunto de entrenamiento. Realizaremos 30 repeticiones del procedimiento k-fold.
+
+
+```{r valid}
+set.seed(100)
+cancer$diagnosis = factor(cancer$diagnosis)
+trainFilas = createDataPartition(cancer$diagnosis, p=0.8, list=FALSE)
+head(trainFilas) # trainFilas contiene los números de las filas que irán a Train
+trainDatos = cancer[trainFilas,] 
+testDatos = cancer[-trainFilas,]
+
+num = table(trainDatos$diagnosis)
+perc = 100*num/sum(num)
+kable(cbind(num, perc))
+myTrainControl = trainControl(method = "repeatedcv",  # k-fold
+                              number = 10,  # num folds
+                              repeats = 30) # num veces a repetir CV
+myTrainControl
+```
+
+
+----------
+
+*EJERCICIO 1*
+
+*Utiliza la función sample() para seleccionar las observaciones que se utilizarán como datos de entrenamiento y comprueba si la proporción de benignos y malignos es la misma que en los datos originales.  ¿Cuál es la ventaja de utilizar la librería caret para hacer esta división entre  datos de entrenamiento y test?*
+
+----------
+
+*EJERCICIO 2*
+
+*Discute la relevancia de utilizar caret o la función sample() para dividir los datos en entrenamiento y test en un modelo de regresión.*
+
+----------
+
+*EJERCICIO 3*
+
+*Diseña una estrategia de validación cruzada con la función trainControl() para el caso en el que quisiéramos tener tantos "folds" como observaciones. ¿Cuándo estaríamos calculando mayor número de modelos: en este caso o en la estrategia indicada en la práctica (k-fold repetido)?*
+
+----------
+
+
+
+# ANÁLISIS DISCRIMINANTE
+
+## Ejemplo 2: Simulación de mixturas
+
+Simulamos las dos muestras de 1000 observaciones a partir de una distribución normal, y representamos sus funciones de densidad estimadas en el mismo gráfico:
+
+```{r mixt1}
+set.seed(25)
+g1 = rnorm(1000, 2, 1)
+g2 = rnorm(1000, 6, 1)
+plot(density(g1), col = 2, lwd = 2, main = "Dos distribuciones normales",
+     xlim = c(min(g1), max(g2)), ylim = c(0,0.45))
+lines(density(g2), col = 4, lwd = 2)
+text(x = c(2,6), y = rep(0.1,2), c("G1", "G2"), col = c(2,4))
+```
+
+
+Ahora juntamos los datos de las dos muestras (mezcla o mixtura) y representamos la función de
+densidad estimada a partir de la mixtura. Veamos a qué grupo asignaríamos una observación con x = 3.8 suponiendo igual el coste de clasificar erróneamente la observación en cada uno de los grupos y lo mismo si tenemos en cuenta que el coste de clasificar erróneamente es distinto:
+
+```{r mixt2}
+mixtura = c(g1,g2)
+plot(density(mixtura), col = 1, lwd = 2, main = "Mixtura de distribuciones")
+f1 = dnorm(3.8, mean = 2, 1)
+f2 = dnorm(3.8, mean = 6, 1)
+# Mismo coste
+f2 > f1
+# Coste distinto
+3*f2 > f1
+```
+
+
+
+## Ejemplo 1: Cáncer de mama
+
+Seguimos con los datos de cáncer de mama y vamos a generar un modelo de análisis discriminante que nos permita clasificar los tumores en benignos o malignos.
+
+Para ello, obtendremos la FDL a partir de los datos de entrenamiento mediante el esquema de validación cruzada previamente definido. Aunque en este caso no vamos a optimizar ningún hiperparámetro, sí que nos permitirá estimar el error de clasificación en los datos de entrenamiento de forma más fidedigna.
+
+**Nota 1:** En LDA se obtienen los mismos resultados de clasificación
+centrando y escalando las variables que sin centrarlas y escalarlas (mismas probabilidades a posteriori), pero escalar nos permitirá interpretar los resultados para identificar las variables más discriminantes.
+
+**Nota 2:** En este ejemplo, caret está utilizando la función lda() de la librería MASS para hacer el análisis discriminante. Por tanto, se pueden incluir también en la función train() los argumentos propios de la función lda().
+
+
+```{r cancer1}
+set.seed(100)  ## Fijamos la semilla aleatoria para que los resultados de la CV sean los mismos en cada ejecución
+trainDatosESC = trainDatos
+trainDatosESC[,-1] = scale(trainDatos[,-1])  
+modeloTR = train(diagnosis ~ ., data = trainDatosESC, method='lda', 
+                 trControl = myTrainControl)  
+modeloTR
+# modeloTR$method
+modeloTR$finalModel
+# modeloTR$finalModel$scaling  ## Coeficientes de las variables en FDL
+modeloTR$results
+dim(modeloTR$resample)
+head(modeloTR$resample)
+```
+
+
+Por defecto, la librería *caret* nos devuelve la exactitud (*Accuracy*) y el coeficiente Kappa. Nos devuelve la media y desviación típica de estos indicadores para los 300 modelos entrenados en la CV aplicados sobre el *fold* que se deja fuera para validar. Podemos observar que son valores altos, lo que indica que el LDA permite clasificar los tumores bastante bien. Se le pueden pedir más medidas del error o generarlas nosotros mismos a partir de la matriz de confusión. Más adelante veremos cómo hacerlo.
+
+Los resultados generados también nos devuelven la siguiente información:
+
+* Las probabilidades a priori utilizadas son las observadas en la muestra. Si pensamos que realmente el porcentaje de tumores malignos en la realidad es diferente al de la muestra, deberíamos cambiar las probabilidades a priori.
+
+* Los coeficientes (LD1) de la función discriminante nos permitirán seleccionar las variables más discriminantes a la hora de clasificar los tumores.
+
+
+
+----------
+
+*EJERCICIO 4*
+
+*Investiga si se podría haber hecho el centrado y escalado de los datos con la propia función train() y cómo lo habríamos hecho. ¿Se obtienen los mismos resultados?*
+
+----------
+
+
+Como habíamos indicado anteriormente, vamos a obtener la matriz de confusión del modelo final aplicado a los datos de entrenamiento y a los datos test, así como otras medidas del error adicionales. 
+
+Realmente, para evaluar la bondad de clasificación del modelo, sería más adecuado analizar la matriz de confusión obtenida a partir de los datos test. Sin embargo, es conveniente explorar primero qué pasa con los datos de entrenamiento ya que, si con ellos no se obtienen buenos resultados, debemos seguir perfeccionando nuestro modelo o buscando otros modelos mejores.
+
+Para la matriz de confusión, siempre hay que definir que entendemos como casos positivos (P) o negativos (N). En este caso, como queremos un método para detectar los tumores malignos con la mayor precisión posible, elegiremos como positivos los tumores malignos.
+
+**Nota:** Los datos test siempre deben escalarse de la misma forma en la que se han escalado los datos de entrenamiento, es decir, utilizando la media y desviación típica de las variables sobre los datos de entrenamiento. Si realizamos el centrado y escalado dentro de la propia función utilizada para generar el modelo, no será necesario porque la función *predict* lo tendrá en cuenta. En nuestro caso, como centramos y escalamos los datos de entrenamiento fuera de la función con *scale*, es necesario que hagamos lo propio con los datos test.
+
+
+```{r cancer2}
+# Datos de entrenamiento
+ajusteTR = predict(modeloTR, type = "raw")
+head(ajusteTR)
+caret::confusionMatrix(ajusteTR, factor(trainDatosESC$diagnosis), positive = "M")
+# Datos test
+testDatosESC = testDatos
+testDatosESC[,-1] = scale(testDatos[,-1], center = colMeans(trainDatos[,-1]), 
+                     scale = apply(trainDatos[,-1], 2, sd))
+ajusteTest = predict(modeloTR, testDatosESC, type = "raw") 
+caret::confusionMatrix(ajusteTest, factor(testDatos$diagnosis), positive = "M")
+```
+
+Como podemos observar en estos resultados, las medidas del error de clasificación son muy buenas tanto en los datos de entrenamiento como en los datos test.
+
+
+
+----------
+
+*EJERCICIO 5*
+
+*Crea una función que te permita calcular el coeficiente de correlación de Matthews (MCC) a partir de la matriz de confusión. Aplícala para calcular el MCC sobre los datos test del ejemplo anterior.*
+
+----------
+
+
+
+Vamos a generar la curva ROC del modelo LDA para los datos test:
+
+```{r cancer2roc, warning=FALSE, message=FALSE}
+library(pROC)
+Y = testDatos$diagnosis
+ajusteTestProb = predict(modeloTR, testDatosESC, type = "prob") 
+head(ajusteTestProb)
+miroc = roc(Y ~ ajusteTestProb[,"M"], plot = TRUE, print.auc = TRUE, col = "red3") 
+# Elementos de la lista que devuelve al función roc:
+names(miroc)
+```
+
+Como podemos observar en el gráfico, el área bajo la curva (AUC) es muy cercana a 1, lo que muestra que el modelo LDA es muy buen clasificador para estos datos.
+
+----------
+
+*EJERCICIO 6*
+
+*A partir de los resultados de la curva roc, ¿podrías calcular el índice de Youden y obtener el valor de la probabilidad de clasificación (p) para el que se maximiza el índica de Youden?*
+
+----------
+
+
+Veamos la representación gráfica de las puntuaciones discriminantes sobre, por ejemplo, los datos de entrenamiento: 
+
+```{r cancer3}
+z = as.matrix(trainDatosESC[,-1]) %*% modeloTR$finalModel$scaling
+plot(density(z[trainDatos$diagnosis == "B"]), col = 4, xlab = "z",
+     xlim = range(z), main = "Cancer de mama", lwd = 2)
+lines(density(z[trainDatos$diagnosis == "M"]), col = 2, lwd = 2)
+abline(v = mean(z[trainDatos$diagnosis == "B"]), col = 4, lty = 2, lwd = 2)
+abline(v = mean(z[trainDatos$diagnosis == "M"]), col = 2, lty = 2, lwd = 2)
+```
+
+
+Por último, vamos a seleccionar las variables que más han contribuido a clasificar los tumores. Para ello, evaluaremos sus coeficientes (en valor absoluto) en la FDL. Representaremos en sendos diagramas de cajas y bigotes, la diferencia entre los valores de la variable más discriminante y de una de las menos discriminantes entre los dos grupos de tumores. 
+
+```{r cancer4}
+myW = modeloTR$finalModel$scaling[,1]
+barplot(sort(abs(myW), decreasing = TRUE), las = 2, cex.names = 0.5) 
+par(mfrow = c(1,2))
+boxplot(radius_peor ~ diagnosis, data = trainDatos, col = "grey", notch = TRUE)
+boxplot(texture_se ~ diagnosis, data = trainDatos, col = "grey", notch = TRUE)
+```
+
+Efectivamente, los gráficos de cajas y bigotes confirman cómo la primera variable (*radius_peor*) diferencia bastante bien los dos tipos de tumor, al contrario que la segunda variable (*texture_se*).
+
+
+
+
+----------
+
+*EJERCICIO 7*
+
+*Crea un gráfico de barras que represente las variables ordenadas según su poder discriminante pero que muestre los coeficientes con su signo correspondiente (no en valor absoluto). Colorea con distinto color las barras de coeficientes positivos o negativos.*
+
+----------
+
+
+
+## Ejemplo 3: Vinos de Italia
+
+Cargamos los datos de vinos y exploramos las frecuencias de las clases en la variable respuesta (*Cultivar*):
+
+```{r vinos1, message=FALSE, warning=FALSE}
+library(candisc)
+data(Wine)
+kable(table(Wine$Cultivar))
+kable(100*table(Wine$Cultivar)/sum(table(Wine$Cultivar)))
+```
+
+Como podemos observar, las clases están bastante equilibradas.
+
+
+Dividimos los datos en entrenamiento y test, y los escalamos:
+
+```{r vinos2}
+set.seed(100)
+trainFilas = createDataPartition(Wine$Cultivar, p=0.8, list=FALSE)
+trainDatosW = Wine[trainFilas,]
+testDatosW = Wine[-trainFilas,]
+trainDatosWESC = trainDatosW
+trainDatosWESC[,-1] = scale(trainDatosW[,-1], center = TRUE, scale = TRUE)
+testDatosWESC = testDatosW
+testDatosWESC[,-1] = scale(testDatosW[,-1], center = colMeans(trainDatosW[,-1]), 
+                     scale = apply(trainDatosW[,-1], 2, sd))
+```
+
+
+Generamos el modelo lineal discriminante sobre los datos de entrenamiento y evaluamos su bondad de clasificación sobre estos datos y sobre los datos test. En esta ocasión, utilizaremos la función *lda* directamente para generar el modelo, en lugar de la librería caret, y no realizaremos validación cruzada sobre los datos de entrenamiento.
+
+```{r vinos3}
+modeloTR = lda(Cultivar ~ ., data = trainDatosWESC, CV = FALSE) 
+modeloTR$prior
+modeloTR$means
+head(modeloTR$scaling) # coeficientes de la FDL
+# Matriz de confusión para entrenamiento
+ajusteTR = predict(modeloTR)
+caret::confusionMatrix(ajusteTR$class, trainDatosW$Cultivar)
+# Matriz de confusión para test
+ajusteTest = predict(modeloTR, testDatosWESC)
+caret::confusionMatrix(ajusteTest$class, testDatosW$Cultivar)
+head(ajusteTest$posterior)
+head(ajusteTest$x)  #  z (puntuaciones discriminantes)
+```
+
+Como podemos observar, al tener 3 grupos (3 variedades), se generan dos funciones discriminantes (LD1 y LD2).
+
+La clasificación es perfecta, tanto para los datos de entrenamiento como para los datos test, ya que no hay ningún vino que esté mal clasificado.
+
+
+
+Representaremos gráficamente las puntuaciones discriminantes (ahora en un gráfico de dos dimensiones) para todos los datos:
+
+```{r vinos4}
+WineE = rbind(trainDatosWESC, testDatosWESC)
+plot.df <- data.frame(predict(modeloTR, WineE[,-1])$x, "Outcome" = WineE$Cultivar)
+library(ggplot2)
+ggplot(plot.df, aes(x = LD1, y = LD2, color = Outcome)) + geom_point()
+```
+
+Observamos cómo la primera función discriminante separa muy bien *barolo* y *barbera*, pero no tanto *grignolino*, que consigue clasificarse mejor gracias a la segunda función discriminante. Así pues, en este ejemplo, son necesarias ambas funciones discriminantes.
+
+
+----------
+
+*EJERCICIO 8*
+
+*A partir de los resultados anteriores, ¿qué características de los vinos contribuyen a discriminar mejor cada variedad de uva?*
+
+----------
+
+
+
+# REGRESIÓN LOGÍSTICA
+
+## Ejemplo 1: Cáncer de mama
+
+Generamos un modelo de regresión logística para los datos de cáncer de mama. 
+
+```{r reglog}
+modeloTrRL = glm(diagnosis ~ ., data = trainDatos, family = "binomial")
+summary(modeloTrRL)
+```
+
+
+Observamos que tenemos un problema en el ajuste del modelo de regresión logística. Veamos si puede ser debido a una alta correlación entre las variables predictoras que está dando lugar a un problema importante de multicolinealidad: 
+
+```{r corre, warning=FALSE, message=FALSE}
+library(corrplot)
+corrplot(cor(trainDatos[,-1]), method = "ellipse", diag = FALSE, order = "hclust",
+         hclust.method = "ward.D2", tl.col = 1, tl.cex = 0.8)
+```
+
+
+Efectivamente, tenemos un problema de multicolinealidad que afecta al ajuste del modelo de regresión logística. Ajustaremos otro modelo de regresión logística eliminando algunas de las variables más correlacionadas:
+
+
+```{r reglog2}
+modeloTrRL2 = glm(diagnosis ~ .-texture_peor-radius_m-perimeter_m-area_peor
+                  -radius_peor-perimeter_peor-radius_se-perimeter_se
+                  -concave_points_m-concavity_peor-concavity_se-
+                    concavity_m-compactness_m-compactness_peor,
+                  data = trainDatos, family = "binomial")
+summary(modeloTrRL2)
+```
+
+Y por último, ajustaremos un modelo con las variables más significativas:
+
+```{r reglog3}
+modeloTrRL3 = glm(diagnosis ~ texture_m + area_m + fractal_dimension_m + area_se 
+                  + compactness_se + fractal_dimension_se + concave_points_peor 
+                  + symmetry_peor + fractal_dimension_peor,
+                  data = trainDatos, family = "binomial")
+summary(modeloTrRL3)
+```
+
+Comparamos, mediante curvas ROC, el modelo 3 de regresión logística, y el modelo LDA obtenido anteriormente:
+
+```{r AUC, message=FALSE, warning=FALSE}
+library(pROC)
+miROC1 = roc(Y ~ ajusteTestProb[,"M"], plot = TRUE, print.auc = FALSE, col = "red3") 
+ajusteTest3 = predict(modeloTrRL3, testDatos)
+miROC3 = roc(testDatos$diagnosis ~ ajusteTest3, 
+             plot = TRUE, col = "blue3", lty = 2, add = TRUE)
+legend("bottomright", c(paste0("LDA - AUC = ", round(miROC1$auc,4)),
+                        paste0("LR3 - AUC = ", round(miROC3$auc, 4))),
+       col = c("red3", "blue3"), lwd = 2, bty = "n")
+```
+
+Ambos modelos tienen un AUC elevado, ligeramente mayor el del LDA que, además, no presenta ningún problema debido a la multicolinealidad en las variables predictoras.
+
+
+
+# MANOVA
+
+## Ejemplo 3: Vinos de Italia
+
+En esta sección, generaremos un modelo MANOVA para los datos de vinos:
+
+```{r manova}
+Y = as.matrix(WineE[,-1])
+fit = manova(Y ~ WineE$Cultivar)
+summary(fit, test="Pillai")
+summary.aov(fit)
+```
+
+Podemos observar que todas las variables contribuyen significativamente a discriminar entre las 3 variedades. Faltaría analizar qué variables presentan más diferencias entre qué variedades, información que extrajimos del LDA en el Ejercicio 8. 
