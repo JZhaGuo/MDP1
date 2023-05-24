@@ -1,0 +1,771 @@
+---
+title: "Partial Least Squares Regression (PLS)"
+author: "Sonia Tarazona"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=TRUE, warning=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+   install.packages("BiocManager")
+BiocManager::install("ropls")
+library(lattice)
+library(ropls)
+library(pls)
+library(caret)
+library(MASS)
+library(ggplot2)
+# https://bioconductor.org/packages/release/bioc/vignettes/ropls/inst/doc/ropls-vignette.html
+```
+
+```{r carga}
+beisbol = read.csv('beisbol.csv', row.names = 1, as.is = TRUE)
+```
+
+
+# Modelo PLS2
+
+## Lectura y preparación de datos
+
+Se le llama PLS2 pq las variables respuesta son más de 1, por lo que es una matriz. El PLS1 es el que devuelve un vector con una única variable respuesta.
+
+Cargamos los datos de ejemplo del aceite de oliva que vienen incluidos en la librería *pls* de CRAN. Estos datos nos servirán de ejemplo para realizar tanto un PLS como un PLS-DA. Dado que los datos están en un formato específico proporcionado por la librería *pls*, tenemos que modificar su formato para poderlos utilizar. En concreto, dividiremos los datos en dos matrices: matriz de variables predictoras (**X**) y matriz respuesta (**Y**). Además, crearemos una variable categórica que indique la procedencia del aceite (S=España, I=Italia, G=Grecia) y que podremos utilizar en la segunda parte de la práctica para obtener un modelo PLS-DA.
+
+```{r datosAceite, comment=FALSE}
+summary(trainY)
+```
+
+
+## Estimación del modelo y del número de componentes
+
+Escalamos tanto la matriz **Y** como la **X**, ya que las variables están medidas en distintas unidades. Lo haremos desde la propia función opls(), teniendo en cuenta que la opción seleccionada centra y escala ambas matrices. En caso de querer procesar de forma diferente las matrices **X** e **Y**, deberemos hacerlo antes con la función scale() e indicarle a la función opls() que no haga ningún escalado. 
+
+No dividimos los datos en entrenamiento y test porque tenemos muy pocas observaciones (n = `r nrow(X)`).
+
+Estimaremos el número de componentes óptimo mediante validación cruzada. En este caso, dado que solo tenemos `r nrow(X)` observaciones, optaremos por el procedimiento "leave-one-out". 
+
+```{r selComps, echo = TRUE, message = FALSE, warning=FALSE}
+mypls = opls(x = trainX, y = trainY, predI = NA, crossvalI = nrow(trainX), scaleC = "standard",
+             fig.pdfC = "none")
+#mypls@summaryDF  # Para recuperar la información que devuelve en pantalla la función opls
+```
+
+De acuerdo con el criterio de la función *opls*, el número óptimo de componentes sería 5. 
+
+No obstante, vamos a generar nuestro propio gráfico para estimar mejor el número óptimo de componentes del modelo:
+
+```{r plotNC, echo = TRUE, message = FALSE, warning=FALSE}
+## Recordad que para hacer este gráfico necesito obtener el modelo con un número alto de componentes, por ejemplo 15, ya que 24 variables son muchas dimensiones <- explicar mejor
+#maxNC = min(dim(trainX));
+maxNC = 15
+myplsC = opls(x = trainX, y = trainY, predI = maxNC, crossvalI = nrow(trainX), 
+              scaleC = "standard", fig.pdfC = "none")
+# mypls@modelDF  ## Para recuperar la información de cada componente
+plot(1:maxNC, myplsC@modelDF$`R2Y(cum)`, type = "o", pch = 16, col = "blue3",
+     lwd = 2, xlab = "Components", ylab = "", ylim = c(0,1),
+     main = "PLS model: Players Salary")
+lines(1:maxNC, myplsC@modelDF$`Q2(cum)`, type = "o", pch = 16, col = "red3",
+      lwd = 2)
+abline(h = 0.5, col = "red3", lty = 2)
+legend("bottomleft", c("R2Y", "Q2"), lwd = 2, 
+       col = c("blue3", "red3"), bty = "n")
+```
+
+
+En el gráfico anterior podemos observar que con 5 componentes el valor de $Q^2$ (bondad de predicción) y de $R^2$ (bondad del ajuste) tienen valores similares, y con 6 componentes convergen totalmente en los mismos valores. Por lo que generamos el modelo con 5 componentes:
+
+
+
+```{r selComps2, echo = TRUE, message = FALSE, warning=FALSE}
+mypls = opls(x = trainX, y = trainY, predI = 5, crossvalI = nrow(trainX), scaleC = "standard")
+#plot(mypls)  ## Para recuperar los gráficos que la función opls genera por defecto
+```
+
+Se explican a continuación los gráficos anteriores, aunque algunos se verán con más detalle en los apartados siguientes:
+
+- Superior izquierda: Valores acumulados para cada componente seleccionada de $R^2$ y $Q^2$.
+
+- Superior derecha: Gráfico para detectar valores anómalos. Nosotros lo haremos como se ha estudiado en la asignatura, es decir, con la $T^2$ de Hotelling y la Suma de Cuadrados Residual ($SCR$).
+
+- Inferior izquierda: Gráfico de loadings (**X**).
+
+- Inferior derecha: Gráfico de scores (**X**).
+
+
+
+A continuación, se muestra el código para extraer información relevante del modelo, que se puede utilizar para generar gráficas personalizadas (como veremos a continuación en algún ejemplo) o para realizar otros análisis.
+
+```{r model1, echo = TRUE, message = FALSE, warning=FALSE}
+mypls@vipVn
+mypls@coefficientMN  # Coeficientes de regresión (B)
+# mypls@scoreMN # scores X (T)
+# mypls@loadingMN # loadings X (P)
+# mypls@weightMN # weights X (W)
+# mypls@weightStarMN # weights X (W*)
+# mypls@cMN # weights Y (C)
+# mypls@uMN # scores Y (U)
+```
+
+
+
+## Validación del modelo PLS
+
+
+### Detección de anómalos severos con T2-Hotelling
+
+Podemos detectar posibles valores anómalos en las observaciones a partir los scores, tal como hacíamos en PCA. 
+
+Dado que hemos seleccionado solo 2 componentes, tenemos dos opciones de gráfico para la detección de anómalos a partir del estadístico $T^2$ de Hotelling.
+
+La primera opción sería representar el gráfico de scores de **X** y dibujar la elipse correspondiente al límite del intervalo de confianza del estadístico $T^2$. Este gráfico se puede obtener con la propia librería *ropls*. La ayuda sobre los argumentos de la función *plot* adaptada a esta librería se puede consultar con *?plot.opls*.
+
+
+```{r T2a, fig.width=5, fig.height=4.5}
+plot(x = mypls, typeVc = "x-score",
+     parAsColFcVn = proced, parCexN = 0.8, parCompVi = c(1, 2),
+     parEllipsesL = TRUE, parLabVc = rownames(X), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+En el gráfico anterior, podemos observar que no hay valores fuera de la elipse, por lo que no tenemos observaciones anómalas.
+
+
+Cuando tenemos más de 2 componentes, solo disponemos de la opción gráfica siguiente que, obviamente, también sirve para el caso de 2 componentes.
+
+En este caso, los límites de confianza al 95% y 99% para el estadístico $T^2$ se representan con las líneas horizontales en naranja y rojo, respectivamente. Obviamente, las conclusiones son las mismas: no tenemos valores anómalos porque no hay ningún punto que exceda los límites de confianza. 
+
+
+```{r T2b, fig.width=5, fig.height=5}
+misScores = mypls@scoreMN
+varT = apply(misScores, 2, var)
+miT2 = colSums(t(misScores**2) / varT)
+N = nrow(X)
+A = 2
+F95 = A*(N**2 - 1)/(N*(N - A)) * qf(0.95, A, N-A); F95
+F99 = A*(N**2 - 1)/(N*(N - A)) * qf(0.99, A, N-A); F99
+plot(1:length(miT2), miT2, type = "l", xlab = "aceites", ylab = "T2",
+     main = "PLS: T2-Hotelling", ylim = c(0,15))
+abline(h = F95, col = "orange", lty = 2, lwd = 2)
+abline(h = F99, col = "red3", lty = 2, lwd = 2)
+```
+
+
+
+### Detección de casos atípicos con la SCR (distancia al modelo)
+
+En el siguiente gráfico representamos la Suma de Cuadrados Residual y su límite de confianza al 95%. El gráfico de la distancia al modelo sería equivalente pero calculando la raíz cuadrada de la SCR (y del límite correspondiente).
+
+```{r SCR, fig.width=5, fig.height=5}
+myT = mypls@scoreMN
+myP = mypls@loadingMN
+myE = scale(X) - myT%*%t(myP) 
+mySCR = rowSums(myE^2)   # SPE 
+plot(1:length(mySCR), mySCR, type = "l", main = "PLS: Distancia2 al modelo", 
+     ylab = "SCR", xlab = "aceites", ylim = c(0,4))
+g = var(mySCR)/(2*mean(mySCR))
+h = (2*mean(mySCR)^2)/var(mySCR)
+chi2lim = g*qchisq(0.95, df = h)
+abline(h = chi2lim, col = "orange", lty = 2)
+chi2lim99 = g*qchisq(0.99, df = h)
+abline(h = chi2lim99, col = "red3", lty = 2)
+```
+
+**Conclusión:** En este caso, hay `r sum(mySCR > chi2lim)` aceite que se sale fuera del límite del 95%. Esta observación mal explicada por el modelo corresponde al aceite `r names(which(mySCR > chi2lim))`. No la excluiremos, puesto que ni siquiera excede el límite del 99%.
+
+
+----------
+
+*EJERCICIO 1*
+
+*Generar el gráfico de contribuciones a la SCR para esta observación e interprétalo.*
+
+----------
+
+
+
+
+### Relación lineal entre scores
+
+Comprobaremos a continuación la relación de linealidad entre los scores de **X** y de **Y** para cada componente, tanto gráficamente como calculando las correlaciones.
+
+```{r tu, fig.width=10, fig.height=5}
+# t vs u
+par(mfrow = c(1,2))
+plot(mypls@scoreMN[,1], mypls@uMN[,1], xlab = "t", ylab = "u",
+     main = "Component 1", col = "red3")
+abline(a=0, b=1, col = "grey", lty = 3)
+plot(mypls@scoreMN[,2], mypls@uMN[,2], xlab = "t", ylab = "u",
+     main = "Component 2", col = "red3")
+abline(a=0, b=1, col = "grey", lty = 3)
+
+diag(cor(mypls@scoreMN, mypls@uMN))
+```
+
+
+----------
+
+*EJERCICIO 2*
+
+*¿Podemos asumir que se cumple el supuesto de linealidad del modelo PLS?*
+
+----------
+
+
+## Interpretación del modelo PLS
+
+Los siguientes gráficos nos servirán para interpretar el modelo PLS.
+
+El gráfico siguiente es el gráfico de scores y ya lo utilizamos para detectar posibles anómalos severos. Ahora lo utilizaremos para interpretar el modelo junto con el resto de gráficos de esta sección.
+
+```{r interpre, fig.width=5, fig.height=5}
+plot(x = mypls, typeVc = "x-score",
+     parAsColFcVn = proced, parCexN = 0.8, parCompVi = c(1, 2),
+     parEllipsesL = TRUE, parLabVc = rownames(X), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+
+plot(x = mypls, typeVc = "x-loading",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+En primer lugar, vemos que, aunque no le dimos al modelo la procedencia de cada aceite, las procedencias se separan bastante bien en las dos primeras componentes. La primera separa bien Italia y España, mientras que la segunda ayuda a separar algunos aceites de Grecia. Así pues, a la vista del gráfico de loadings, los aceites italianos tienden a tener más contenido en *Peroxide*, *K232* y *K270* que el resto. 
+
+
+```{r interpre2, fig.width=5, fig.height=6}
+plot(x = mypls, typeVc = "xy-weight",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+
+barplot(sort(mypls@vipVn, decreasing = TRUE), main = "VIP", las = 2)
+abline(h = 1, col = 2, lty = 2)
+```
+
+En segundo lugar, nos fijamos ya en el objetivo del PLS, es decir, estudiar las relaciones entre las variables en **X** y las variables en Y. Podemos ver que valores más altos en *Peroxide* y *K232* se corresponden con valores más altos en *brown* y *syrup*, y esto pasará especialmente en aceites italianos. Los griegos (especialmente G1 y G4) tendrán valores más altos de *Acidity* o *DK*, que a su vez están relacionados con valores más altos en *green*.
+
+Con los valores de VIP, confirmamos (como se veía en el gráfico), cuáles son las variables en **X** más importantes para explicar **Y**: *Peroxide*, *K232* y *K270*.
+
+
+
+----------
+
+*EJERCICIO 3*
+
+*Confirma las relaciones observadas con los gráficos apropiados.*
+
+----------
+
+
+*EJERCICIO 4*
+
+*Confirma las relaciones observadas a partir de los coeficientes de regresión.*
+
+----------
+
+
+
+## Medidas del error de predicción
+
+Con el siguiente código, podemos predecir los valores de la matriz respuesta **Y** a partir del modelo PLS obtenido y calcular las medidas del error que consideremos apropiadas para cada una de las variables en **Y**. 
+
+Para empezar lo haremos sobre los propios datos sobre los que hemos entrenado el modelo:
+
+
+```{r pred1, fig.width=10, fig.height=5}
+Ypred = predict(mypls)
+residuos = Y-Ypred
+myRMSE = sqrt(colMeans(residuos^2))
+CVrmse = myRMSE/colMeans(Y)
+par(mfrow = c(1,2))
+barplot(myRMSE, las = 2, main = "RMSE")
+barplot(CVrmse, las = 2, main = "CV-RMSE")
+```
+
+
+----------
+
+*EJERCICIO 5*
+
+*Comenta los resultados plasmados en los gráficos anteriores y discute la conveniencia de usar RMSE o CV-RMSE para medir el error de predicción.*
+
+----------
+
+*EJERCICIO 6*
+
+*Calcula la predicción con las fórmulas vistas en la asignatura (Tema 6), en lugar de utilizar la función predict().*
+
+----------
+
+*EJERCICIO 7*
+
+*Programa una función en R que calcule todas las medidas de error vistas en la asignatura (Tema 5) para los modelos de regresión.*
+
+----------
+
+
+Por último, los siguientes gráficos nos permiten ver de forma más detallada los valores observados en cada variable de **Y** frente a los predichos por el modelo PLS, para saber en qué casos se desvía más el modelo al hacer las predicciones.
+
+
+
+```{r pred1b, fig.width=12, fig.height=8}
+# Observados versus predichos
+par (mfrow = c(2,3))
+for (i in 1:ncol(Y)) {
+  plot(Y[,i], Ypred[,i], asp = 1, main = colnames(Y)[i],
+     xlab = "observado", ylab = "predicho")
+abline(a=0, b=1, col = "red3", lwd = 2, lty = 2)
+}
+```
+
+
+**Nota:** Deberíamos aplicar el modelo sobre un conjunto test para obtener medidas del error más objetivas, o bien calcularlas mediante validación cruzada, ya que el número de observaciones es muy bajo. La librería *caret* solo admite, en principio, modelos PLS1 o PLS-DA, por lo que no se puede utilizar en este ejemplo.
+
+
+----------
+
+*EJERCICIO 8*
+
+*Programa tu propio procedimiento de validación cruzada LOO para medir el error del modelo PLS de forma más objetiva.*
+
+----------
+
+
+
+
+# Modelo PLS1
+
+
+## Lectura y preparación de datos
+
+Cargamos los datos de la temporada del 86, y utilizamos un modelo supervisado de regresión (PLS) para explicar la variable *salary* en función de las variables de performance a lo largo de la temporada, así como las de la carrera de los jugadores presentes en la temporada de 1986.
+
+
+```{r datosCereales}
+beisbol = read.csv('beisbol.csv', row.names = 1, as.is = TRUE)
+trainFilas = createDataPartition(beisbol$Salary, p=0.8, list=FALSE) # Números de las filas
+trainDatos = beisbol[trainFilas,] # Separación de las filas de entrenamiento
+testDatos = beisbol[-trainFilas,] # Separación de las filas que no son de entrenamiento (test)
+trainX = trainDatos[,-18]
+trainY = as.matrix(trainDatos["Salary"])
+testX = testDatos[,-18]
+testY = testDatos["Salary"]
+```
+
+
+## Estimación del modelo y del número de componentes
+
+Escalamos la matriz **X**, ya que las variables están medidas en distintas unidades. Lo haremos desde la propia función opls(), teniendo en cuenta que la opción seleccionada centra y escala tanto **X** como **y**. En caso de decidir no escalar **y** (puesto que solo contiene la variable *rating*), deberemos hacer el escalado de **X** previamente con la función scale() e indicarle a la función opls() que no haga ningún escalado. 
+
+
+```{r selCompsC, echo = TRUE, message = FALSE, warning=FALSE}
+mypls = opls(x = trainX, y = trainY, predI = NA, crossvalI = 10, scaleC = "standard",
+             fig.pdfC = "none", permI = 30)
+```
+
+Según los criterios del paquete, el número óptimo de componentes sería 3. Como hicimos anteriormente, generaremos nuestro propio gráfico para estimar el número óptimo de componentes del modelo. Puesto que tenemos muchas variables y observaciones, vamos a coger un valor tentativo de 15 como número máximo de componentes para realizar el gráfico.
+
+```{r plotNCcer, echo = TRUE, message = FALSE, warning=FALSE}
+## Recordad que para hacer este gráfico necesito obtener el modelo con el número máx de componentes
+maxNC = 15
+myplsC = opls(x = trainX, y = trainY, predI = maxNC, crossvalI = 10, scaleC = "standard", fig.pdfC = "none")
+plot(1:maxNC, myplsC@modelDF$`R2Y(cum)`, type = "o", pch = 16, col = "blue3",
+     lwd = 2, xlab = "Components", ylab = "", main = "PLS model: Jugadores y Salary", ylim = c(0,1))
+lines(1:maxNC, myplsC@modelDF$`Q2(cum)`, type = "o", pch = 16, col = "red3",
+      lwd = 2)
+abline(h = 0.5, col = "red3", lty = 2)
+legend("bottomleft", c("R2Y", "Q2"), lwd = 2, 
+       col = c("blue3", "red3"), bty = "n")
+```
+
+A la vista de este gráfico, podemos corroborar que es adecuado seleccionar 5 componentes, ya que a partir de la quinta los valores de la $Q^2$ y de la $R^2$ no aumentan significativamente, además convergen en cuanto a sus valores. Además, podemos considerar que tendremos un buen modelo dados los valores elevados de estos parámetros.
+
+
+```{r model3, echo = TRUE, message = FALSE, warning=FALSE}
+myplsC = opls(x = trainX, y = trainY, predI = 5, crossvalI = 10, scaleC = "standard", permI = 30)
+```
+
+La función anterior devuelve, por defecto, una serie de gráficos:
+
+* *Model overview:* Valores acumulados de $R^2$ y $Q^2$ en cada componente.
+
+* *Observation diagnostics:* Sirve para identificar valores anómalos. No lo estudiaremos porque esto lo haremos con nuestros propios gráficos ($T^2$ de Hotelling y SCR).
+
+* *pR2Y, pQ2:* Este gráfico sirve para ver si podemos tener sobreajuste (*overfitting*) en nuestros datos. Esto se estudia mediante técnicas de permutación. Se permutan los valores de **y** *permI* veces, mientras **X** se deja invariable y se obtiene un modelo PLS para cada **y** permutada ($y_{perm}$). En cada modelo, se calculan los valores de la $R^2$ (*pR2Y*) y de la $Q^2$ (*pQs*) y se representan con puntos grises y negros, respectivamente, en el gráfico. Las líneas horizontales gris y negra se corresponden con los valores reales de $R^2$ y $Q^2$, respectivamente, del modelo PLS sin permutar **y**. En este caso se observa que el modelo PLS obtenido (líneas horizontales) es mucho mejor que los modelos PLS obtenidos por azar (puntos) y podemos concluir que no hay sobreajuste.   
+
+* *Scores (PLS):* Gráficos de scores de **X** para las 2 primeras componentes, coloreando las observaciones por los valores de la variable respuesta **y**. Lo analizaremos más adelante con mayor detenimiento.
+
+
+
+## Validación del modelo PLS
+
+
+### Detección de anómalos severos con T2-Hotelling
+
+Dado que hemos seleccionado 5 componentes, identificaremos los anómalos severos con el siguiente gráfico:
+
+```{r T2bCer}
+misScores = myplsC@scoreMN
+varT = apply(misScores, 2, var)
+miT2 = colSums(t(misScores**2) / varT)
+N = nrow(trainX)
+A = 3
+F95 = A*(N**2 - 1)/(N*(N - A)) * qf(0.95, A, N-A); F95
+F99 = A*(N**2 - 1)/(N*(N - A)) * qf(0.99, A, N-A); F99
+plot(1:length(miT2), miT2, type = "l", xlab = "jugadores", ylab = "T2",
+     main = "PLS: T2-Hotelling")
+abline(h = F95, col = "orange", lty = 2, lwd = 2)
+abline(h = F99, col = "red3", lty = 2, lwd = 2)
+```
+
+Tenemos varios valores anómalos (por encima del límite del 99%): `r rownames(trainX)[which(miT2 > F99)]`. Estos son los cereales que ya destacaron en análisis anteriores y que no eliminaremos por tener características que pueden ayudar a explicar la variable respuesta. 
+
+
+
+
+### Detección de casos atípicos con la SCR (distancia al modelo)
+
+En el siguiente gráfico representamos la Suma de Cuadrados Residual y sus límites de confianza al 95% y 99%. 
+
+```{r SCRcer}
+myT = myplsC@scoreMN
+myP = myplsC@loadingMN
+myE = scale(trainX) - myT%*%t(myP) 
+mySCR = rowSums(myE^2)   # SPE 
+plot(1:length(mySCR), mySCR, type = "l", main = "SCR", 
+     xlab = "cereales", ylim = c(0,18))
+g = var(mySCR)/(2*mean(mySCR))
+h = (2*mean(mySCR)^2)/var(mySCR)
+chi2lim = g*qchisq(0.95, df = h)
+abline(h = chi2lim, col = "orange", lty = 2)
+chi2lim99 = g*qchisq(0.99, df = h)
+abline(h = chi2lim99, col = "red3", lty = 2)
+```
+```{r SCRcer}
+
+selected = rownames(trainX)[which(mySCR > chi2lim99)]
+selected2= rownames(beisbol) %in% selected
+subset(beisbol, selected2)
+```
+**Conclusión:** En este caso,  hay observaciones por encima del límite del 99%, por lo que nos planteamos eliminar alguno (por continuar). 
+
+**HASTA AQUÍ  24/05, VER SI ELIMINAMOS LAS OBSERVACIONES ATÍPICAS**
+
+
+
+
+
+### Relación lineal entre scores
+
+```{r tuCer}
+# t vs u
+par(mfrow = c(1,3))
+for (i in 1:5) {
+  plot(myplsC@scoreMN[,i], myplsC@uMN[,i], xlab = "t", ylab = "u",
+     main = paste0("Component ", i), col = "red3")
+}
+diag(cor(myplsC@scoreMN, myplsC@uMN))
+```
+
+
+----------
+
+*EJERCICIO 9*
+
+*¿Podemos asumir que se cumple el supuesto de linealidad de este modelo PLS?*
+
+----------
+
+
+## Interpretación del modelo PLS
+
+Los siguientes gráficos nos servirán para interpretar el modelo PLS.
+
+```{r loadingCer, fig.width=12, fig.height=5}
+par(mfrow = c(1,2))
+plot(x = myplsC, typeVc = "x-score", parCompVi = c(1, 2))
+
+plot(x = myplsC, typeVc = "xy-weight",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+
+par(mfrow = c(1,2))
+plot(x = myplsC, typeVc = "x-score", parCompVi = c(1, 3))
+
+plot(x = myplsC, typeVc = "xy-weight",
+     parCexN = 0.8, parCompVi = c(1, 3), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+
+```
+
+
+----------
+
+*EJERCICIO 10*
+
+*Interpreta los gráficos anteriores: ¿Qué variables nutricionales son más determinantes en el valor del rating? ¿Por qué? ¿Son coherentes estos resultados con los obtenidos en los análisis no supervisados?*
+
+----------
+
+*EJERCICIO 11*
+
+*Programa una función para obtener la significación estadística de los coeficientes de regresión que sirva para cualquier modelo PLS (o PLS-DA) y aplícala para obtener los coeficientes estadísticamente significativos del modelo anterior para un nivel de significación del 5%. Según estos resultados, ¿se confirman las conclusiones obtenidas en el ejercicio anterior?*
+
+----------
+
+
+
+## Medidas del error de predicción
+
+
+----------
+
+*EJERCICIO 12*
+
+*Calcula las medidas del error para este modelo que consideres más apropiadas y discute los resultados obtenidos, teniendo en cuenta que se calculan sobre los propios datos utilizados para generar el modelo PLS. Describe un procedimiento más adecuado para estimar el error de forma más realista.*
+
+----------
+
+
+
+
+
+
+
+# Modelo PLS-DA (2 clases)
+
+
+## Lectura y preparación de datos
+
+Utilizaremos en esta sección los datos de cáncer de mama analizados en la Práctica 5 y los dividiremos en datos de entrenamiento (80%) y test (20%), como se hizo en dicha práctica.
+
+```{r tumores, message=FALSE}
+cancer = read.csv("archivos de datos/BreastCancer.csv", sep = ";", row.names = 1)
+nombres = c("radius", "texture", "perimeter", "area", "smoothness", "compactness", 
+            "concavity", "concave_points", "symmetry", "fractal_dimension")
+colnames(cancer)[-1] = c(paste0(nombres,"_m"), paste0(nombres,"_se"), 
+                         paste0(nombres,"_peor")) 
+cancer$diagnosis = factor(cancer$diagnosis)
+library(caret)
+set.seed(100)
+trainFilas = createDataPartition(cancer$diagnosis, p=0.8, list=FALSE)
+Xtrain = subset(cancer[trainFilas,], select = -diagnosis)
+ytrain = cancer$diagnosis[trainFilas]
+Xtest = subset(cancer[-trainFilas,], select = -diagnosis)
+ytest = cancer$diagnosis[-trainFilas]
+```
+
+
+## Estimación del modelo y del número de componentes
+
+En este caso, escalaremos la matriz **X** en la propia función *opls*.
+
+```{r plsDAcan, message=FALSE, fig.width=5, fig.height=5}
+myplsda = opls(x = Xtrain, y = ytrain, predI = NA, crossvalI = 10, 
+               scaleC = "standard", fig.pdfC = "none")
+maxNC = 10 # Lo hacemos para 10 componentes máximo en lugar de para las 30 posibles
+myplsda = opls(x = Xtrain, y = ytrain, predI = maxNC, crossvalI = 10, 
+              scaleC = "standard", fig.pdfC = "none")
+plot(1:maxNC, myplsda@modelDF$`R2Y(cum)`, type = "o", pch = 16, col = "blue3",
+     lwd = 2, xlab = "Components", ylab = "", ylim = c(0.4,0.8),
+     main = "PLS-DA model: Breast cancer")
+lines(1:maxNC, myplsda@modelDF$`Q2(cum)`, type = "o", pch = 16, col = "red3",
+      lwd = 2)
+abline(h = 0.5, col = "red3", lty = 2)
+legend("bottomleft", c("R2Y", "Q2"), lwd = 2, 
+       col = c("blue3", "red3"), bty = "n")
+```
+
+
+Como podemos observar, la tercera componente no supone una mejora importante en el valor de la $Q^2$ y dado que tenemos solo dos grupos, nos quedaremos con las dos primeras componentes en lugar de las 5 que recomienda la función *opls*.
+
+
+```{r plsDAcan2, message=FALSE}
+myplsda = opls(x = Xtrain, y = ytrain, predI = 2, crossvalI = 10, 
+               permI = 20, scaleC = "standard")
+```
+
+----------
+
+*EJERCICIO 13*
+
+*¿Qué conclusiones puedes extraer de las dos gráficas de la parte derecha del panel anterior?*
+
+----------
+
+
+
+## Validación del modelo
+
+----------
+
+*EJERCICIO 14*
+
+*Valida el modelo mediante la $T^2$ de Hotelling y la SCR. ¿Consideras necesario excluir alguna observación?*
+
+----------
+
+
+
+
+## Interpretación del modelo
+
+
+
+```{r interprCan, message=FALSE}
+plot(x = myplsda, typeVc = "x-score",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+
+
+```{r interprCan2, message=FALSE, fig.height=7, fig.width=5}
+plot(x = myplsda, typeVc = "xy-weight",
+     parCexN = 0.7, parCompVi = c(1, 2), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+
+
+----------
+
+*EJERCICIO 15*
+
+*Interpreta los gráficos anteriores. Evalúa los parámetros oportunos (VIP, coeficientes de regresión,...) para identificar los predictores más discriminantes entre los tipos de tumor. A la vista de estos gráficos, ¿tendrán estos predictores discrimiantes un valor más alto para los tumores benignos o malignos?*
+
+----------
+
+
+## Medidas del error en PLS-DA
+
+Para los datos de entrenamiento:
+
+```{r prediDAtrain, message=FALSE, warning=FALSE}
+mypred = predict(myplsda)
+library(caret)
+caret::confusionMatrix(mypred, ytrain, positive = "M")
+```
+
+
+Para los datos test:
+
+```{r prediDAtest, message=FALSE}
+mypred = predict(myplsda, Xtest)
+library(caret)
+caret::confusionMatrix(mypred, ytest, positive = "M")
+```
+
+----------
+
+*EJERCICIO 16*
+
+*Verifica que los datos test (Xtest) caen dentro del espacio de los datos de entrenamiento, para asegurarnos que las predicciones hechas con el modelo son correctas.*
+
+
+----------
+
+*EJERCICIO 17*
+
+*Comenta las medidas del error obtenidas tanto para los datos de entrenamiento como para los de test.*
+
+----------
+
+*EJERCICIO 18*
+
+*Obtén un gráfico con las curvas ROC para este modelo y para el modelo de Análisis Discriminante obtenido en la práctica anterior y discútelo.*
+
+----------
+
+
+
+
+
+
+
+
+# Modelo PLS-DA (3 clases)
+
+Retomamos los datos de ejemplo del aceite de oliva incluidos en la librería *pls*, que ya utilizamos al principio de esta práctica. Nuestra variable respuesta será la procedencia del aceite (*proced*) y utilizaremos como variables predictoras las dos matrices utilizadas en el modelo PLS.
+
+```{r datosAceiteDA, comment=FALSE}
+Xda = cbind(oliveoil$chemical, oliveoil$sensory)
+```
+
+
+## Estimación del modelo
+
+Como disponemos de pocas observaciones, al igual que hicimos en en modelo PLS, no dividiremos los datos en entrenamiento y test y utilizaremos una validación cruzada LOO para la estimación del número óptimo de componentes.
+
+```{r plsDA, message=FALSE}
+myplsda = opls(x = Xda, y = proced, predI = NA, crossvalI = nrow(Xda), 
+               scaleC = "standard", permI = 40)
+```
+
+A la vista de estos resultados, 2 componentes es una elección razonable para separar bien las procedencias del aceite, por lo que no realizaremos más gráficos adicionales.
+
+
+
+## Validación del modelo
+
+Si nos fijamos en la elipse del gráfico de scores, vemos que no existen valores anómalos severos. No realizaremos en este caso la validación por la SCR porque, en caso de existir valores atípicos, no los excluiremos dado el limitado tamaño muestral que tenemos.
+
+
+
+
+## Interpretación del modelo
+
+
+```{r interpr, message=FALSE}
+plot(x = myplsda, typeVc = "x-score",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+
+
+
+```{r interpr2, message=FALSE, fig.width=5, fig.height=7}
+plot(x = myplsda, typeVc = "xy-weight",
+     parCexN = 0.9, parCompVi = c(1, 2), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+----------
+
+*EJERCICIO 19*
+
+*Interpreta los gráficos anteriores indicando las características de los aceites según su procedencia.*
+
+----------
+
+
+## Medidas del error en PLS-DA
+
+Obtendremos las medidas del error para los aceites con los que se ha entrenado el modelo, ya que no disponemos de más datos.
+
+```{r prediDA, message=FALSE, warning=FALSE}
+mypred = predict(myplsda)
+library(caret)
+caret::confusionMatrix(mypred, proced)
+```
+
+
+
+----------
+
+*EJERCICIO 20*
+
+*Discute los resultados obenidos y propón una alternativa mejor para medir el error de clasificación de este modelo.*
+
+----------
+
+
+
